@@ -2,3 +2,12 @@ __pycache__
 *.fits
 ref
 1RXS J013724.7-082744
+*.aux
+*.bbl
+*.blg
+*.brf
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
