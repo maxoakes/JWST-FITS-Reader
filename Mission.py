@@ -1,34 +1,27 @@
-from Image import Image
+from ImageDescription import ImageDescription
 
 class Mission:
-    title = ""
-    images = []
+    __title = ""
+    __items = []
 
     def __init__(self, title):
-        self.title = title
+        self.__title = title
 
-    def add_image(self, image):
-        self.images.append(image)
+    def add_item(self, item):
+        self.__items.append(item)
 
-    def search(self, filter='', data_type=''):
+    def search(self, filter='', sortby='DATE-OBS') -> list[ImageDescription]:
         found = []
         if filter == '':
-            found = self.images
+            found = self.__items
         else:
-            for im in self.images:
-                if im.filter == filter:
-                    found.append(im)
-        if data_type == '':
-            return found
-        else:
-            returning = []
-            for f in found:
-                if f.data_type == data_type:
-                    returning.append(f)
-        return returning
+            for item in self.__items:
+                if item.get_filter_name() == filter:
+                    found.append(item)
+        return sorted(found, key=lambda im: im.get_card(0, sortby))
 
-    def __str__(self):
-        return f"Mission: {self.title} with {len(self.images)} images"
+    def get_title(self) -> str:
+        return self.__title
     
-
-
+    def __str__(self):
+        return f"Mission: {self.__title} with {len(self.__items)} items"

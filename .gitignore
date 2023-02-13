@@ -1,7 +1,12 @@
 __pycache__
-*.fits
-ref
-1RXS J013724.7-082744
+# dev things not ready for prod
+wip
+
+# big directories
+missions
+queries
+
+# latex stuff
 *.aux
 *.bbl
 *.blg

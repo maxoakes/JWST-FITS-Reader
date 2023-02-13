@@ -8,7 +8,7 @@ class Card:
         self.value = str(v).strip()
         self.comment = str(c).strip()
 
-    def parse_header_to_list(header):
+    def parse_header_to_list(header) -> list:
         all_cards = []
         for card in header:
             if (card.keyword):
@@ -16,7 +16,7 @@ class Card:
                 all_cards.append(c)
         return all_cards
     
-    def parse_header_to_dict(header):
+    def parse_header_to_dict(header) -> dict:
         all_cards = {}
         for card in header:
             if (card.keyword):
