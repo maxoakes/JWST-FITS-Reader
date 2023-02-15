@@ -48,9 +48,9 @@ def main():
             query(search_params, True)
             return
         if (sys.argv[1] == 'run'):
-            default_id = 2282 # 'A Strongly Magnified Individual Star and Parsec-Scale Clusters Observed in the First Billion Years at z = 6'
+            default_id = 2733 # NGC 3132, small nebulae
             # 1415 = mars
-            # 2733 = NGC 3132, small nebulae
+            # 2282 # 'A Strongly Magnified Individual Star and Parsec-Scale Clusters Observed in the First Billion Years at z = 6'
             id = input("Proposal ID: ")
             if not id:
                 id = default_id
@@ -74,13 +74,18 @@ def main():
                 t = 'SCI'
                 desc = mission.search(filter=filter, sortby='DATE-OBS')[0]
                 false_channels[color] = Image(filter, t, desc.get_image(t), 
-                    desc.get_card(t,'PA_V3'), desc.get_card(t,'PIXAR_A2'), desc.get_card(t, 'PIXAR_SR'),
+                    desc.get_card(t,'PA_V3'), desc.get_card(t,'PIXAR_A2'),
                     desc.get_card(t,'RA_V1'), desc.get_card(t,'DEC_V1'), 
                     desc.get_card(t,'CRPIX1'), desc.get_card(t,'CRPIX2'))
-                print(false_channels[color])
+                # print(false_channels[color])
 
+            for color, image in false_channels.items():
+                rescale_image(image, 0.07)
+                print()
+                print(image)
+            
+            pad_set(false_channels['red'], false_channels['green'], false_channels['blue'])
             # false_channels = rescale_method_1(false_channels['red'], false_channels['green'], false_channels['blue'])
-            false_channels = rescale_method_2(false_channels['red'], false_channels['green'], false_channels['blue'])
 
             fig, ax = plt.subplots()
             # ax.imshow(false_channels['red'].get_image(), cmap='gray', vmin=-1, vmax=20) # black white
@@ -93,6 +98,34 @@ def main():
         print(f"`{sys.argv[0]} query` to search for project missions and print the query result to a file.")
         print(f"`{sys.argv[0]} run` to download and process mission files. Have a proposal ID ready to enter.")
         print("Exiting...")
+
+def rescale_image(target_image: Image, target_size: float):
+    # find the scale factor
+    print(f"Starting size: {target_image.get_image_x()}*{target_image.get_image_y()}, pixel size: {target_image.get_pixel_side_length()}")
+    scale_factor = target_size / target_image.get_pixel_side_length()
+    print(f"scale factor to get to {target_size} pixel length: {scale_factor}x")
+
+    # perform scaling operation
+    rescaled = skimage.transform.rescale(target_image.get_image(), 1/scale_factor, anti_aliasing=False)
+    target_image.update_image(rescaled)
+    target_image.update_data(target_image.get_rotation(), (target_image.get_pixel_side_length() * scale_factor), 
+        scale_factor * target_image.get_center_x(),
+        scale_factor * target_image.get_center_y())
+    print(f"new listed scale: {target_image.get_image_x()}*{target_image.get_image_y()}, pixel size: {target_image.get_pixel_side_length()}")
+
+def pad_set(red: Image, green: Image, blue: Image):
+    largest = {'x': 0, 'y': 0}
+    for i in [red, green, blue]:
+        if i.get_image_x() > largest['x']:
+            largest['x'] = i.get_image_x()
+        if i.get_image_y() > largest['y']:
+            largest['y'] = i.get_image_y()
+
+    import cv2
+    for i in [red, green, blue]:
+        padded = cv2.copyMakeBorder(i.get_image(), largest['y'] - i.get_image_y(), 0, largest['x'] - i.get_image_x(), 0, cv2.BORDER_CONSTANT, value=[255,255,255])
+        i.update_image(padded)
+    return
 
 def rescale_method_1(red: Image, green: Image, blue: Image):
     false_channels = {
@@ -113,51 +146,6 @@ def rescale_method_1(red: Image, green: Image, blue: Image):
     for color, image in false_channels.items():
         if image.get_image_x() != smallestX:
             scale_factor = smallestX / image.get_image_x()
-            rescaled = skimage.transform.rescale(image.get_image(), scale_factor, anti_aliasing=False)
-            
-            image.update_image(rescaled)
-            image.update_data(image.get_rotation(), 
-                image.get_arcsec_per_pixel() / scale_factor, 
-                scale_factor * image.get_center_x(),
-                scale_factor * image.get_center_y())
-        print(f"rescaled: {image.get_image().shape}, {image.get_arcsec_per_pixel()}")
-
-    # find the largest (rescaled) y size, to pad the ones that are short of that
-    largestY = 0
-    for color, image in false_channels.items():
-        y = image.get_image_y()
-        if y > largestY:
-            largestY = y
-    print(f"Largest y is {largestY}")
-
-    # pad images so they are the same size
-    for color, image in false_channels.items():
-        if image.get_image_y() != largestY:
-            import cv2
-            padded = cv2.copyMakeBorder(image.get_image(), 0, largestY - image.get_image_y(), 0, 0, cv2.BORDER_REFLECT)
-            image.update_image(padded)
-        print(f"padded: {image.get_image().shape}, {image.get_arcsec_per_pixel()}")
-    return false_channels
-
-def rescale_method_2(red: Image, green: Image, blue: Image):
-    false_channels = {
-        'red': red,
-        'green': green,
-        'blue': blue
-    }
-
-    # scale down all images to the size of the height of the smallest one
-    largest_arcsec_per_pixel = 0
-    for color, image in false_channels.items():
-        app = image.get_arcsec_per_pixel()
-        if app > largest_arcsec_per_pixel:
-            largest_arcsec_per_pixel = app
-    print(f"Largest x is {largest_arcsec_per_pixel}")
-
-    # get scaled-down images
-    for color, image in false_channels.items():
-        if not np.isclose(image.get_arcsec_per_pixel(), largest_arcsec_per_pixel):
-            scale_factor = largest_arcsec_per_pixel / image.get_arcsec_per_pixel()
             rescaled = skimage.transform.rescale(image.get_image(), scale_factor, anti_aliasing=False)
             
             image.update_image(rescaled)
