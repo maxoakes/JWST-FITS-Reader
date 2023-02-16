@@ -91,16 +91,19 @@ def main():
             for color, image in false_channels.items():
                 mark_center(image)
 
-            min_exposure_time = np.min([false_channels['red'].get_exposure_time(), false_channels['blue'].get_exposure_time(), false_channels['green'].get_exposure_time()])
-            print(f"Min Exposure Time is {min_exposure_time} sec")
-            # normalize_exposure(min_exposure_time, false_channels['red'], false_channels['blue'], false_channels['green'])
+            # optional: exposure time equalization, brightness equalization
+            # needed: projection extent correction to align all channels
 
-            max_mean_brightness = np.max([
-                np.average(false_channels['red'].get_image()), 
-                np.average(false_channels['blue'].get_image()), 
-                np.average(false_channels['green'].get_image())])
-            print(f"Max mean brightness {max_mean_brightness}")
-            set_mean_brightness(max_mean_brightness, false_channels['red'], false_channels['blue'], false_channels['green'])
+            # min_exposure_time = np.min([false_channels['red'].get_exposure_time(), false_channels['blue'].get_exposure_time(), false_channels['green'].get_exposure_time()])
+            # print(f"Min Exposure Time is {min_exposure_time} sec")
+            # # normalize_exposure(min_exposure_time, false_channels['red'], false_channels['blue'], false_channels['green'])
+
+            # max_mean_brightness = np.max([
+            #     np.average(false_channels['red'].get_image()), 
+            #     np.average(false_channels['blue'].get_image()), 
+            #     np.average(false_channels['green'].get_image())])
+            # print(f"Max mean brightness {max_mean_brightness}")
+            # set_mean_brightness(max_mean_brightness, false_channels['red'], false_channels['blue'], false_channels['green'])
 
             # set all images to the same resolution
             pad_set(false_channels['red'], false_channels['green'], false_channels['blue'])
