@@ -15,8 +15,10 @@ class Image:
     __area_per_pixel: float # Nominal pixel area in arcsec^2
     __centerX: float
     __centerY: float
+    __exposure: float # seconds
+    __extent: list[SkyCoord]
 
-    def __init__(self, filter, data_type, image_data, rotation, app, ra, dec, x, y):
+    def __init__(self, filter, data_type, image_data, rotation, app, ra, dec, x, y, exposure, extent):
         self.__filter = filter
         self.__data_type = data_type
         self.__image_data = np.array(image_data, dtype=float)
@@ -25,6 +27,8 @@ class Image:
         self.__coords = SkyCoord(ra=ra*u.degree, dec=dec*u.degree, frame='icrs')
         self.__centerX = x
         self.__centerY = y
+        self.__exposure = exposure
+        self.__extent = extent
 
     def get_filter(self):
         return self.__filter
@@ -55,6 +59,12 @@ class Image:
     
     def get_pixel_side_length(self):
         return math.sqrt(self.__area_per_pixel)
+    
+    def get_extent(self, index: int) -> SkyCoord:
+        return self.__extent[index]
+    
+    def get_exposure_time(self) -> float:
+        return self.__exposure
     
     def update_data(self, rotation, app, centerX, centerY):
         self.__rotation = rotation

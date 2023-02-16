@@ -55,6 +55,7 @@ def main():
             if not id:
                 id = default_id
 
+            # Acquire imaging data
             downloaded_items = download_mission(id)
             mission = Mission(downloaded_items[0].get_metadata('target_name'))
             print("\nOperating on FITS files...")
@@ -69,29 +70,50 @@ def main():
                     for t in [0,1,2]:
                         i.write_fits_header_to_file(t)
             
+            # write working image data to memory
             false_channels: dict[str,Image] = { }
-            for color, filter in [('red', 'F090W'), ('blue', 'F356W'), ('green', 'F444W')]:
+            for color, filter in [('red', 'F090W'), ('blue', 'F187N'), ('green', 'F444W')]:
                 t = 'SCI'
                 desc = mission.search(filter=filter, sortby='DATE-OBS')[0]
                 false_channels[color] = Image(filter, t, desc.get_image(t), 
                     desc.get_card(t,'PA_V3'), desc.get_card(t,'PIXAR_A2'),
                     desc.get_card(t,'RA_V1'), desc.get_card(t,'DEC_V1'), 
-                    desc.get_card(t,'CRPIX1'), desc.get_card(t,'CRPIX2'))
-                # print(false_channels[color])
+                    desc.get_card(t,'CRPIX1'), desc.get_card(t,'CRPIX2'),
+                    desc.get_card(t, 'XPOSURE'), 
+                    parse_spatial_extent(desc.get_card(t, 'S_REGION')))
 
+            # rescale images so each pixel measures the same area in space
             for color, image in false_channels.items():
                 rescale_image(image, 0.07)
                 print()
                 print(image)
             
+            for color, image in false_channels.items():
+                mark_center(image)
+
+            min_exposure_time = np.min([false_channels['red'].get_exposure_time(), false_channels['blue'].get_exposure_time(), false_channels['green'].get_exposure_time()])
+            print(f"Min Exposure Time is {min_exposure_time} sec")
+            # normalize_exposure(min_exposure_time, false_channels['red'], false_channels['blue'], false_channels['green'])
+
+            max_mean_brightness = np.max([
+                np.average(false_channels['red'].get_image()), 
+                np.average(false_channels['blue'].get_image()), 
+                np.average(false_channels['green'].get_image())])
+            print(f"Max mean brightness {max_mean_brightness}")
+            set_mean_brightness(max_mean_brightness, false_channels['red'], false_channels['blue'], false_channels['green'])
+
+            # set all images to the same resolution
             pad_set(false_channels['red'], false_channels['green'], false_channels['blue'])
             # false_channels = rescale_method_1(false_channels['red'], false_channels['green'], false_channels['blue'])
 
-            fig, ax = plt.subplots()
-            # ax.imshow(false_channels['red'].get_image(), cmap='gray', vmin=-1, vmax=20) # black white
-            ax.imshow(np.dstack((false_channels['red'].get_image(), false_channels['green'].get_image(), false_channels['blue'].get_image()))) # color
-            ax.set_title(mission.get_title())
-            plt.show()
+            align_images(false_channels['red'], false_channels['blue'])
+            align_images(false_channels['red'], false_channels['green'])
+
+            normalize_color_channels(false_channels['red'], false_channels['green'], false_channels['blue'], min=0, max=50)
+            # display image(s)
+            # show_color_image(mission.get_title(), false_channels['red'], false_channels['green'], false_channels['blue'])
+            show_all_channels(mission.get_title(), false_channels['red'], false_channels['green'], false_channels['blue'], min=0, max=1)
+            # show_single_channel(mission.get_title(), false_channels['red'])
             return
     else:
         print("Please run one of the following:")
@@ -109,8 +131,8 @@ def rescale_image(target_image: Image, target_size: float):
     rescaled = skimage.transform.rescale(target_image.get_image(), 1/scale_factor, anti_aliasing=False)
     target_image.update_image(rescaled)
     target_image.update_data(target_image.get_rotation(), (target_image.get_pixel_side_length() * scale_factor), 
-        scale_factor * target_image.get_center_x(),
-        scale_factor * target_image.get_center_y())
+        target_image.get_center_x()/scale_factor,
+        target_image.get_center_y()/scale_factor)
     print(f"new listed scale: {target_image.get_image_x()}*{target_image.get_image_y()}, pixel size: {target_image.get_pixel_side_length()}")
 
 def pad_set(red: Image, green: Image, blue: Image):
@@ -123,54 +145,106 @@ def pad_set(red: Image, green: Image, blue: Image):
 
     import cv2
     for i in [red, green, blue]:
-        padded = cv2.copyMakeBorder(i.get_image(), largest['y'] - i.get_image_y(), 0, largest['x'] - i.get_image_x(), 0, cv2.BORDER_CONSTANT, value=[255,255,255])
+        padded = cv2.copyMakeBorder(i.get_image(), 
+        0, # top
+        largest['y'] - i.get_image_y(), # bottom
+        0, # left
+        largest['x'] - i.get_image_x(), #right
+        cv2.BORDER_CONSTANT, value=1000)
         i.update_image(padded)
     return
 
-def rescale_method_1(red: Image, green: Image, blue: Image):
-    false_channels = {
-        'red': red,
-        'green': green,
-        'blue': blue
-    }
+def mark_center(image: Image):
+    marked = image.get_image()
+    marked[int(image.get_center_x())][int(image.get_center_y())] = 0
+    image.update_image(marked)
 
-    # scale down all images to the size of the height of the smallest one
-    smallestX = np.infty
-    for color, image in false_channels.items():
-        x = image.get_image_x()
-        if x < smallestX:
-            smallestX = x
-    print(f"Smallest x is {smallestX}")
+def align_images(target_image: Image, image_to_move: Image):
+    difference = (int(target_image.get_center_x() - image_to_move.get_center_x()), int(target_image.get_center_y() - image_to_move.get_center_y()))
+    print(f"Moving {image_to_move.get_filter()} by {difference}")
+    rolled = np.roll(image_to_move.get_image(), difference[0] + 8, axis=1)
+    rolled = np.roll(rolled, difference[1] - 7, axis=0)
+    image_to_move.update_image(rolled)
+    return
 
-    # get scaled-down images
-    for color, image in false_channels.items():
-        if image.get_image_x() != smallestX:
-            scale_factor = smallestX / image.get_image_x()
-            rescaled = skimage.transform.rescale(image.get_image(), scale_factor, anti_aliasing=False)
-            
-            image.update_image(rescaled)
-            image.update_data(image.get_rotation(), 
-                image.get_arcsec_per_pixel() / scale_factor, 
-                scale_factor * image.get_center_x(),
-                scale_factor * image.get_center_y())
-        print(f"rescaled: {image.get_image().shape}, {image.get_arcsec_per_pixel()}")
+def normalize_color_channels(red: Image, blue: Image, green: Image, min=-1, max=100):
+    for channel in [red, green, blue]:
+        normalized = (channel.get_image() - min) / max
+        channel.update_image(normalized)
 
-    # find the largest (rescaled) y size, to pad the ones that are short of that
-    largestY = 0
-    for color, image in false_channels.items():
-        y = image.get_image_y()
-        if y > largestY:
-            largestY = y
-    print(f"Largest y is {largestY}")
+def normalize_exposure(target_exposure: float, red: Image, blue: Image, green: Image):
+    for channel in [red, green, blue]:
+        exposure_diff = channel.get_exposure_time() - target_exposure
+        print(f"Exposure difference {channel.get_filter()}: {exposure_diff}")
+        # get brightness value per pixel for duration of excess exposure
+        # (brightness per exposure)
+        new_image = channel.get_image() - (channel.get_image() / channel.get_exposure_time()) * exposure_diff
+        channel.update_image(new_image)
 
-    # pad images so they are the same size
-    for color, image in false_channels.items():
-        if image.get_image_y() != largestY:
-            import cv2
-            padded = cv2.copyMakeBorder(image.get_image(), 0, largestY - image.get_image_y(), 0, 0, cv2.BORDER_REFLECT)
-            image.update_image(padded)
-        print(f"padded: {image.get_image().shape}, {image.get_arcsec_per_pixel()}")
-    return false_channels
+def set_mean_brightness(target_mean: float, red: Image, blue: Image, green: Image):
+    for channel in [red, green, blue]:
+        this_mean = np.average(channel.get_image())
+        new_image = channel.get_image() * (target_mean / this_mean)
+        channel.update_image(new_image)
+
+def show_color_image(title, red: Image, blue: Image, green: Image):
+    fig, ax = plt.subplots()
+    ax.imshow(np.dstack((red.get_image(), green.get_image(), blue.get_image()))) # color
+    ax.set_title(title)
+    plt.show()
+
+def show_all_channels(title, red: Image, blue: Image, green: Image, min=0, max=1, axis='on'):
+    color = np.dstack((red.get_image(), green.get_image(), blue.get_image()))
+    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(10, 10), sharex=True, sharey=True)
+    ax = axes.ravel()
+
+    # color
+    ax[0].imshow(color)
+    ax[0].axis(axis)
+    ax[0].set_title(f'{title}: Color')
+
+    # red
+    ax[1].imshow(red.get_image(), cmap='gray', vmin=min, vmax=max)
+    ax[1].axis(axis)
+    ax[1].set_title(f'{title}: "red" {red.get_filter()}')
+
+    # green
+    ax[2].imshow(green.get_image(), cmap='gray', vmin=min, vmax=max)
+    ax[2].axis(axis)
+    ax[2].set_title(f'{title}: "green" {green.get_filter()}')
+
+    # blue
+    ax[3].imshow(blue.get_image(), cmap='gray', vmin=min, vmax=max)
+    ax[3].axis(axis)
+    ax[3].set_title(f'{title}: "blue" {blue.get_filter()}')
+
+    plt.tight_layout()
+    plt.show()
+
+def show_single_channel(title, channel: Image, min=0, max=1):
+    fig, ax = plt.subplots()
+    ax.imshow(channel.get_image(), cmap='gray', vmin=min, vmax=max)
+    ax.set_title(title)
+    plt.show()
+
+# S_REGION= 'POLYGON ICRS  151.721470971 -40.448319128 151.772509901 &'           CONTINUE  '-40.463765259 151.792874057 -40.424753501 151.741860051 &'           CONTINUE  '-40.409316329&'                                                      CONTINUE  ''
+def parse_spatial_extent(extent_string: str) -> list[SkyCoord]:
+    print(f"Input:{extent_string}")
+    new_string = extent_string.replace('CONTINUE', '')
+    new_string = new_string.replace('POLYGON ICRS', '')
+    string_array = new_string.split(' ')
+    string_array = list(filter(lambda coord: coord != '', string_array))
+    print(f"Output:{string_array}")
+    spatial_extent = []
+
+    if len(string_array) % 2 == 0:
+        while len(string_array) > 0:
+            ra = float(string_array.pop(0))
+            dec = float(string_array.pop(0))
+            new = SkyCoord(ra=ra*u.degree, dec=dec*u.degree, frame='icrs')
+            spatial_extent.append(new)
+            print(new)
+    return spatial_extent
 
 def query(params: dict, do_print: bool):
     print(f"Querying for: {params}")
