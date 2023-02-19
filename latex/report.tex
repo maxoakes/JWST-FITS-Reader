@@ -10,6 +10,8 @@
 %\usepackage[pagenumbers]{cvpr} % To force page numbers, e.g. for an arXiv version
 
 % Include other packages here, before hyperref.
+\usepackage{graphicx}
+\graphicspath{ {./image/} }
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage{graphicx}
@@ -45,7 +47,7 @@
 \begin{document}
 
 %%%%%%%%% TITLE - PLEASE UPDATE
-\title{Aquisition, Processing, and Displaying JWST Imaging Data}
+\title{Acquiring, Processing, and Displaying JWST NIRCam Imaging Data}
 \cvprfinaltrue
 
 \author{Maxwell Oakes\\
@@ -58,8 +60,8 @@ Portland State University\\
 \begin{abstract}
   Images coming back from the James Webb Space Telescope (JWST) present a fascinating and awe-inspiring look at distant celestial objects and provide a glimpse at the early history of the universe. 
   This paper provides a summary of steps taken to replicate the work done to process raw astronomical imaging data into the vivid RGB images that have been released by The National Aeronautics and Space Administration (NASA). 
-  Methods to acquire the image files via download will be addressed, as well as an overview of the FITS file format inwhich they are contained.
-  The steps required to contextualize and relaign the images will also be reviewed. A short description of any post-processing steps will be provided before a discussion of the results that were obtained.
+  Methods to acquire the image files via download will be addressed, as well as an overview of the FITS file format in which they are contained.
+  The steps required to contextualize and realign the images will also be reviewed. A short description of any post-processing steps will be provided before a discussion of the results that were obtained.
   The processed images that have been released from JWST were placed into an already-existing processing pipeline managed by developers and graphics artists that have already spent much time in the field, so the results of this project will not be at the expert-level quality of those images, but the general process described may shed light on how steps of that process is done.
 \end{abstract}
 
@@ -67,32 +69,107 @@ Portland State University\\
 \section{Introduction}
 \label{sec:intro}
 
-Please follow the steps outlined below when submitting your manuscript to the IEEE Computer Society Press.
-This style guide now has several important modifications (for example, you are no longer warned against the use of sticky tape to attach your artwork to the paper), so all authors should read this new version.
+The James Webb Space Telescope (JWST) was launched December 25th, 2021 as a successor to Hubble Space Telescope. The mission for JWST is to examine every phase of cosmic history; ranging from the first stars after the Big Bang to the formation of galaxies, stars and planets. Of the goals for JWST, there are four themes: 
+(1) peer back in time with infrared imaging to see the formation of the first stars and galaxies, 
+(2) use highly-sensitive infrared technology to view faint and early galaxies to help us understand how they are formed,
+(3) see through clouds of dust and gas to observe how planetary systems are born
+(4) study atmospheres of extrasolar planets in hopes of finding the building blocks of life elsewhere in the universe \cite{webbobjective}.
+Altogether, these objectives aim to give humanity a better understanding of the universe and its formation, and help us better understand our place in the universe.
+
+Being able to meaningfully process data from JWST will prove to be immensely important in achieving these objectives. Additionally, allowing the public audience to see the fruits of JWST will drive fascination, and perhaps garner support in its ultimate objective.
+
+Currently, the publishing of images from JWST's NIRCam imager requires a mix of computer science and art to achieve eye-catching imagery, often requiring external photo editing software and subjective judgement to make the best decisions.
+
+This project aims to streamline the post-processing step of NIRCam data by automatically downloading imaging data from Space Telescope Science Institute's (STSI) MAST public archive, select the best wavelength-filtered exposures and combine them into a single correctly-aligned, clean RGB color image.
+
+\section{Background Information}
+\label{sec:background}
+
+The following offers a short description of JWST and its instruments and capabilities, and gives a summary of the processing pipeline of imaging data, and concludes with the basic data structure that this imaging data comes in.
+
+\subsection{Onboard Instruments}
+
+\begin{figure*}
+  \centering
+    \includegraphics[scale=0.18]{instrument_array}
+  \caption{Placement of instrument array onboard JWST \cite{webbnircam}. The instrument that is focused is NIRCam, the primary tool that will be used in the project presented in this paper.}
+  \label{fig:instruments}
+\end{figure*}
+
+In order to achieve these objectives, JWST is armed with several imaging and spectroscopy tools described below, and shown in \cref{fig:instruments}:
+\newline
+
+\textbf{MIRI Imager:} A camera sensor able to capture between $5.6$ and $25.5\mu m$. It offers 9 broadband filters allowing the capture of smaller portions of this light bandwidth. 
+The camera itself has a field of view of $74'' \times 113''$. It also features several dither patterns that improve sampling at the shorter wavelengths, and remove artifacts from the detector or cosmic ray hits \cite{webbmiri}.
+\newline
+
+\textbf{NIRCam Infrared Camera:} A tool that offers many observation modes from regular imaging to coronagraphic imaging, to wide field slitless spectroscopy. For this project, NIRCam will be the primary instrument that is studied and utilized.
+For imaging, NIRCam has two $2.2' \times 2.2'$ fields that cover $9.7$ arcmin$^2$ with a total of 29 available wavelength filters.
+The coronagraphic imaging mode offers occlusion masks offer round bar-shaped occulting masks allowing for the capture of a star's corona without capturing the intense light of the star's center \cite{webbnircam}. In some of the pre-processed images of this project, some of the larger stars will have occlusion masks featured in the image outputs.
+\newline
+
+\textbf{NIRISS Imaging:} An imager that enables capture of wavelengths between $0.8$ and $5.0\mu m$ in a $2.2' \times 2.2'$ field of view. 
+Like NIRCam, NIRISS offers spectroscopy, but it is more sensitive to low surface brightness between $0.8$ and $2.5\mu m$. 
+NIRISS imaging is also an alternative to NIRCam in cases where the position of a target is not known with great accuracy \cite{webbniriss}.
+\newline
+
+\textbf{NIRSPEC Spectroscopy:} Provides near-IR spectroscopy between $0.6$ and $5.3 \mu m$ in a $3.4 \times 3.6$ arcmin field of view. It is designed to be especially powerful for multiplexing spectroscopy and high contrast high throughput single-object spectroscopy \cite{webbnirspec}.
+
+\subsection{Filters}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[scale=0.33]{filters}
+  \caption{Available filters for the NIRCam instrument. Those marked with (P) are on the pupil wheel which require transmission through a second filter on the filter wheel \cite{webbfilters}.}
+  \label{fig:filters}
+\end{figure}
+
+JWST is able to capture between $0.6 -- 28.8\mu m$ between all available tools. On each instrument, there are several filters that allow for capturing a smaller bandwidth of that total.
+On NIRCam alone, there are 29 filters available: some for short wavelengths ($0.6-2.3 \mu m$) and some for long wavelengths ($2.4 -- 5.0 \mu m$). Many of these filters can be used in combination of each other by means of a filter wheel and pupil wheel \cite{webbfilters}. 
+For this project, the pupil wheel will either be clear (i.e, no filter), or filtering for a wavelength, and the filter wheel will always be set to some wavelength.
+
+\subsection{JWST Data Processing}
+
+The processing of JWST goes through 3 stages. Stage 1 consists of detector-level corrections that are performed on a group-by-group basis. The output of this stage is a countrate image measuring the collection of photons.
+Stage 2 includes additional instrument-level corrections to produce fully calibrated image exposures. There are different pipelines for imaging and spectroscopic exposures.
+Stage 3 consists of working of with multiple exposures and often consists of combining exposures in some way \cite{webbstages}. 
+This is the stage that will primarily be used in the project described by this paper. Stage 3 processing adds corrections for astrometric alignment, background matching of the different mosaics, and outlier rejection \cite{webbstage3}. 
+The output of this stage, for NIRCam imaging specifically, are clean and calibrated images with metadata detailing photometry, physical positioning, timing, exposure, and much more.
+
+\subsection{Post-Processing by Astronomers}
+When the end goal is to out a color image from NIRCam, it is common that, after stage 3 data processing as previously described, several of the filter exposure images of a mission are compiled in image processing software like Photoshop \cite{editinterview}. At this point, it is up to the graphics artist to interpret the exposures and try to output the most visually striking combination of filters using only three color channels.
+
+\subsection{FITS File Format}
+FITS files are the only format that house JWST (and most astronomical) data. They consist of one or more Header + Data Units (HDUs). 
+Each HDU can contain a table data structure that resembles a dictionary, but rather than a key and a value, this table contains a keyword, value, and comment. Each element in this table type is called a 'card'. 
+An HDU can also contain an N-dimensional array, frequently a 1D spectrum, 2D image, or 3D data cube. The values in this array can be integers (signed, or unsigned for 8-bit), or floats of varying sizes. \cite{fitsdoc}
+
+In the context of JWST stage 3 data used in this project, it is very common that a FITS file contains a primary HDU that has no array and a table with upwards of 300+ cards with information about the mission, target object, and previous stage's processing steps.
+
+Alongside the primary HDU exists the 'science' HDU that contains the raw exposure data for the captured filtered wavelength. The accompanying table of cards is a lot shorter and contains information regarding the applied filter(s), exposure time, spacecraft orientation, spatial extent, as well as other metadata pertinent to the capture of the image.
+
+There are several other HDUs in the FITS file, most of which measure uncertainty and variance for each pixel in the 'science' HDU array \cite{webbfits}. The remaining HDUs are not relevant to processing of the image data. 
+
+\subsection{MAST Archive}
+
+\subsection{Astropy and Python}
+
+\section{Methodology}
+\label{sec:script}
+\subsection{Data Acquisition}
+\subsection{Image Processing}
+\subsection{Image Display}
+
+\section{Experiments}
+\label{sec:exp}
+
+\section{Discussion}
+\label{sec:disc}
 
 %-------------------------------------------------------------------------
-\subsection{Language}
+\section{Junk}
+\label{sec:xxx}
 
-All manuscripts must be in English.
-
-\subsection{Dual submission}
-
-Please refer to the author guidelines on the \confName\ \confYear\ web page for a
-discussion of the policy on dual submissions.
-
-\subsection{Paper length}
-Papers, excluding the references section, must be no longer than eight pages in length.
-The references section will not be included in the page count, and there is no limit on the length of the references section.
-For example, a paper of eight pages with two pages of references would have a total length of 10 pages.
-{\bf There will be no extra page charges for \confName\ \confYear.}
-
-Overlength papers will simply not be reviewed.
-This includes papers where the margins and formatting are deemed to have been significantly altered from those laid down by this style guide.
-Note that this \LaTeX\ guide already sets figure captions and references in a smaller font.
-The reason such papers will not be reviewed is that there is no provision for supervised revisions of manuscripts.
-The reviewing process cannot determine the suitability of the paper for presentation in eight pages if it is reviewed in eleven.
-
-%-------------------------------------------------------------------------
 \subsection{The ruler}
 The \LaTeX\ style defines a printed ruler which should be present in the version submitted for review.
 The ruler is provided in order that reviewers may comment on particular lines in the paper without circumlocution.
@@ -441,12 +518,41 @@ Please direct any questions to the production editor in charge of these proceedi
 \LaTeX{} \cite{lamport94} is a set of macros built atop \TeX{} \cite{texbook}.
 %%%%%%%%% REFERENCES
 \begin{thebibliography}{9}
-\bibitem{texbook}
-Donald E. Knuth (1986) \emph{The \TeX{} Book}, Addison-Wesley Professional.
+\bibitem{webbobjective}
+$https://www.nasa.gov/mission_pages/webb/science/index.html$
 
-\bibitem{lamport94}
-Leslie Lamport (1994) \emph{\LaTeX: a document preparation system}, Addison
-Wesley, Massachusetts, 2nd ed.
+\bibitem{webbtools}
+$https://archive.stsci.edu/missions-and-data/jwst$
+
+\bibitem{webbmiri}
+$https://jwst-docs.stsci.edu/jwst-mid-infrared-instrument/miri-observing-modes/miri-imaging$
+
+\bibitem{webbnircam}
+$https://jwst-docs.stsci.edu/jwst-near-infrared-camera$
+
+\bibitem{webbniriss}
+$https://jwst-docs.stsci.edu/jwst-near-infrared-imager-and-slitless-spectrograph/niriss-observing-modes/niriss-imaging$
+
+\bibitem{webbnirspec}
+$https://jwst-docs.stsci.edu/jwst-near-infrared-spectrograph$
+
+\bibitem{webbfilters}
+$https://jwst-docs.stsci.edu/jwst-near-infrared-camera/nircam-instrumentation/nircam-filters$
+
+\bibitem{webbstages}
+$https://jwst-pipeline.readthedocs.io/en/stable/jwst/pipeline/main.html$
+
+\bibitem{webbstage3}
+$https://jwst-pipeline.readthedocs.io/en/stable/jwst/pipeline/calwebb_image3.html\#calwebb-image3$
+
+\bibitem{editinterview}
+$https://www.space.com/james-webb-space-telescope-image-editing$
+
+\bibitem{fitsdoc}
+$https://www.loc.gov/preservation/digital/formats/fdd/fdd000317.shtml$
+
+\bibitem{webbfits}
+$https://jwst-pipeline.readthedocs.io/en/stable/jwst/data_products/science_products.html\#resampled-2-d-data-i2d-and-s2d$
 \end{thebibliography}
 
 \end{document}
