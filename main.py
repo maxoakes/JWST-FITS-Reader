@@ -5,7 +5,7 @@ import numpy as np
 import skimage
 import skimage.transform
 from skimage.util import crop
-import csv
+from scipy import ndimage as ndi
 from matplotlib import pyplot as plt
 from astropy.io import fits
 from astropy.table import Table
@@ -56,11 +56,13 @@ def main():
                 id = default_id
 
             # Acquire imaging data
+            available_filters = []
             downloaded_items = download_mission(id)
             mission = Mission(downloaded_items[0].get_metadata('target_name'))
             print("\nOperating on FITS files...")
             for item in downloaded_items:
                 mission.add_item(item)
+                
             print(f"Initialized {mission}")
             all = mission.search()
             if (len(sys.argv) > 2 and sys.argv[2] == 'headers'):
@@ -71,46 +73,38 @@ def main():
                         i.write_fits_header_to_file(t)
             
             # write working image data to memory
-            false_channels: dict[str,Image] = { }
-            for color, filter in [('red', 'F090W'), ('blue', 'F187N'), ('green', 'F444W')]:
+            channels: dict[str, Image] = { }
+            smallest_shape = (20000, 20000)
+            for description in mission.search(sortby='FILTER'):
                 t = 'SCI'
-                desc = mission.search(filter=filter, sortby='DATE-OBS')[0]
-                false_channels[color] = Image(filter, t, desc.get_image(t), 
-                    desc.get_card(t,'PA_V3'), desc.get_card(t,'PIXAR_A2'),
-                    desc.get_card(t,'RA_V1'), desc.get_card(t,'DEC_V1'), 
-                    desc.get_card(t,'CRPIX1'), desc.get_card(t,'CRPIX2'),
-                    desc.get_card(t, 'XPOSURE'), 
-                    parse_spatial_extent(desc.get_card(t, 'S_REGION')))
+                this_filter = f"{description.get_card(0, 'FILTER')}/{description.get_card(0,'PUPIL')}"
+                print(f"Creating image for {this_filter}")
+                channels[this_filter] = Image(description.get_card(0, 'FILTER'), 
+                    description.get_card(0,'PUPIL'), t, description.get_image(t), 
+                    description.get_card(t,'PA_V3'), description.get_card(t,'PIXAR_A2'),
+                    description.get_card(t,'RA_V1'), description.get_card(t,'DEC_V1'), 
+                    description.get_card(t,'CRPIX1'), description.get_card(t,'CRPIX2'),
+                    description.get_card(t,'XPOSURE'), 
+                    parse_spatial_extent(description.get_card(t, 'S_REGION')),
+                    description.get_card(t,'PC1_1'), description.get_card(t,'PC1_2'),
+                    description.get_card(t,'PC2_1'), description.get_card(t,'PC2_2'))
+                this_shape = (channels[this_filter].get_image().shape[0], channels[this_filter].get_image().shape[1])
+                print(this_shape)
+                if (this_shape[0] < smallest_shape[0]) and (this_shape[1] < smallest_shape[1]):
+                    smallest_shape = channels[this_filter].get_image()
+            print(f"Smallest resolution image is {smallest_shape}")
+            return
 
-            # rescale images so each pixel measures the same area in space
-            for color, image in false_channels.items():
-                rescale_image(image, 0.07)
-                print()
-                print(image)
-            
-            for color, image in false_channels.items():
-                mark_center(image)
+            # do all of my own alignment attempt steps
+            # custom_alignment(false_channels)
 
-            # optional: exposure time equalization, brightness equalization
-            # needed: projection extent correction to align all channels
-
-            # min_exposure_time = np.min([false_channels['red'].get_exposure_time(), false_channels['blue'].get_exposure_time(), false_channels['green'].get_exposure_time()])
-            # print(f"Min Exposure Time is {min_exposure_time} sec")
-            # # normalize_exposure(min_exposure_time, false_channels['red'], false_channels['blue'], false_channels['green'])
-
-            # max_mean_brightness = np.max([
-            #     np.average(false_channels['red'].get_image()), 
-            #     np.average(false_channels['blue'].get_image()), 
-            #     np.average(false_channels['green'].get_image())])
-            # print(f"Max mean brightness {max_mean_brightness}")
-            # set_mean_brightness(max_mean_brightness, false_channels['red'], false_channels['blue'], false_channels['green'])
-
-            # set all images to the same resolution
-            pad_set(false_channels['red'], false_channels['green'], false_channels['blue'])
-            # false_channels = rescale_method_1(false_channels['red'], false_channels['green'], false_channels['blue'])
-
-            align_images(false_channels['red'], false_channels['blue'])
-            align_images(false_channels['red'], false_channels['green'])
+            # alignment via astroalign
+            import astroalign
+            new_red, red_mask = astroalign.register(false_channels['red'].get_image(), false_channels['green'].get_image(), detection_sigma=20)
+            new_blue, blue_mask = astroalign.register(false_channels['blue'].get_image(), false_channels['green'].get_image(), detection_sigma=20)
+            false_channels['red'].update_image(new_red)
+            false_channels['blue'].update_image(new_blue)
+            show_single_image(false_channels['red'], max=25)
 
             normalize_color_channels(false_channels['red'], false_channels['green'], false_channels['blue'], min=0, max=50)
             # display image(s)
@@ -123,6 +117,37 @@ def main():
         print(f"`{sys.argv[0]} query` to search for project missions and print the query result to a file.")
         print(f"`{sys.argv[0]} run` to download and process mission files. Have a proposal ID ready to enter.")
         print("Exiting...")
+
+def custom_alignment(image_dict: dict[str, Image]):
+    # rescale images so each pixel measures the same area in space
+    for color, image in image_dict.items():
+        rescale_image(image, 0.07)
+        print()
+        print(image)
+    
+    for color, image in image_dict.items():
+        mark_center(image)
+
+    # optional: exposure time equalization, brightness equalization
+    # needed: projection extent correction to align all channels
+
+    # min_exposure_time = np.min([image_dict['red'].get_exposure_time(), image_dict['blue'].get_exposure_time(), image_dict['green'].get_exposure_time()])
+    # print(f"Min Exposure Time is {min_exposure_time} sec")
+    # # normalize_exposure(min_exposure_time, image_dict['red'], image_dict['blue'], image_dict['green'])
+
+    # max_mean_brightness = np.max([
+    #     np.average(image_dict['red'].get_image()), 
+    #     np.average(image_dict['blue'].get_image()), 
+    #     np.average(image_dict['green'].get_image())])
+    # print(f"Max mean brightness {max_mean_brightness}")
+    # set_mean_brightness(max_mean_brightness, image_dict['red'], image_dict['blue'], image_dict['green'])
+
+    # set all images to the same resolution
+    pad_set(image_dict['red'], image_dict['green'], image_dict['blue'])
+    # image_dict = rescale_method_1(image_dict['red'], image_dict['green'], image_dict['blue'])
+
+    align_images(image_dict['red'], image_dict['blue'])
+    align_images(image_dict['red'], image_dict['green'])
 
 def rescale_image(target_image: Image, target_size: float):
     # find the scale factor
@@ -224,20 +249,21 @@ def show_all_channels(title, red: Image, blue: Image, green: Image, min=0, max=1
     plt.tight_layout()
     plt.show()
 
-def show_single_channel(title, channel: Image, min=0, max=1):
+def show_single_image(image: Image, axis='on', min=0, max=100):
     fig, ax = plt.subplots()
-    ax.imshow(channel.get_image(), cmap='gray', vmin=min, vmax=max)
-    ax.set_title(title)
+    ax.imshow(image.get_image(), cmap='gray', vmin=min, vmax=max)
+    ax.axis(axis)
+    ax.set_title(f'{image.get_filter()}')
     plt.show()
 
 # S_REGION= 'POLYGON ICRS  151.721470971 -40.448319128 151.772509901 &'           CONTINUE  '-40.463765259 151.792874057 -40.424753501 151.741860051 &'           CONTINUE  '-40.409316329&'                                                      CONTINUE  ''
 def parse_spatial_extent(extent_string: str) -> list[SkyCoord]:
-    print(f"Input:{extent_string}")
+    # print(f"Input:{extent_string}")
     new_string = extent_string.replace('CONTINUE', '')
     new_string = new_string.replace('POLYGON ICRS', '')
     string_array = new_string.split(' ')
     string_array = list(filter(lambda coord: coord != '', string_array))
-    print(f"Output:{string_array}")
+    # print(f"Output:{string_array}")
     spatial_extent = []
 
     if len(string_array) % 2 == 0:
@@ -246,7 +272,7 @@ def parse_spatial_extent(extent_string: str) -> list[SkyCoord]:
             dec = float(string_array.pop(0))
             new = SkyCoord(ra=ra*u.degree, dec=dec*u.degree, frame='icrs')
             spatial_extent.append(new)
-            print(new)
+            # print(new)
     return spatial_extent
 
 def query(params: dict, do_print: bool):

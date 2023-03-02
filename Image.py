@@ -8,6 +8,7 @@ from Card import Card
 
 class Image:
     __filter: str
+    __pupil: str
     __data_type: str
     __image_data: np.ndarray #images as np arrays
     __coords: SkyCoord
@@ -17,9 +18,11 @@ class Image:
     __centerY: float
     __exposure: float # seconds
     __extent: list[SkyCoord]
+    __matrix_transform: list[list[float]]
 
-    def __init__(self, filter, data_type, image_data, rotation, app, ra, dec, x, y, exposure, extent):
+    def __init__(self, filter, pupil, data_type, image_data, rotation, app, ra, dec, x, y, exposure, extent, t11, t12, t21, t22):
         self.__filter = filter
+        self.__pupil = pupil
         self.__data_type = data_type
         self.__image_data = np.array(image_data, dtype=float)
         self.__rotation = rotation
@@ -29,6 +32,7 @@ class Image:
         self.__centerY = y
         self.__exposure = exposure
         self.__extent = extent
+        self.__matrix_transform = [[t11,t12],[t21,t22]]
 
     def get_filter(self):
         return self.__filter
@@ -65,6 +69,9 @@ class Image:
     
     def get_exposure_time(self) -> float:
         return self.__exposure
+    
+    def get_matrix(self) -> list[list[float]]:
+        return self.__matrix_transform
     
     def update_data(self, rotation, app, centerX, centerY):
         self.__rotation = rotation
