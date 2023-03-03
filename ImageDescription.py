@@ -29,6 +29,12 @@ class ImageDescription:
         hdul.close()
         return skimage.util.img_as_float64(image)
     
+    def get_header(self, fits_index: int | str):
+        hdul = fits.open(self.__fits_path)
+        header = hdul[fits_index].header
+        hdul.close()
+        return header
+    
     def get_card(self, fits_index: int | str, card: str):
         hdul = fits.open(self.__fits_path)
         card_data = hdul[fits_index].header[card]

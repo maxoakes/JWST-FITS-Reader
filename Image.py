@@ -4,7 +4,9 @@ import skimage
 import skimage.transform
 from astropy import units as u
 from astropy.coordinates import SkyCoord
+from astropy.io import fits
 from Card import Card
+from ImageDescription import ImageDescription
 
 class Image:
     __filter: str
@@ -20,19 +22,39 @@ class Image:
     __extent: list[SkyCoord]
     __matrix_transform: list[list[float]]
 
-    def __init__(self, filter, pupil, data_type, image_data, rotation, app, ra, dec, x, y, exposure, extent, t11, t12, t21, t22):
+    def __init__(self, filter: str, pupil: str, index: int | str, description: ImageDescription):
+        header = description.get_header(index)
+        self.__image_data =  np.array(description.get_image(index), dtype=float)
         self.__filter = filter
         self.__pupil = pupil
-        self.__data_type = data_type
-        self.__image_data = np.array(image_data, dtype=float)
-        self.__rotation = rotation
-        self.__area_per_pixel = app
-        self.__coords = SkyCoord(ra=ra*u.degree, dec=dec*u.degree, frame='icrs')
-        self.__centerX = x
-        self.__centerY = y
-        self.__exposure = exposure
-        self.__extent = extent
-        self.__matrix_transform = [[t11,t12],[t21,t22]]
+        self.__coords = SkyCoord(ra=header['RA_V1']*u.degree, dec=header['DEC_V1']*u.degree, frame='icrs')
+        self.__rotation = header['PA_V3']
+        self.__area_per_pixel = header['PIXAR_A2']
+        self.__centerX = header['CRPIX1']
+        self.__centerY = header['CRPIX2']
+        self.exposure = header['XPOSURE'], 
+        self.extent = Image.parse_spatial_extent(header['S_REGION']),
+        self.__matrix_transform = [[header['PC1_1'],header['PC1_2']],[header['PC2_1'],header['PC2_2']]]
+        self.__data_type = index
+
+    # S_REGION= 'POLYGON ICRS  151.721470971 -40.448319128 151.772509901 &'           CONTINUE  '-40.463765259 151.792874057 -40.424753501 151.741860051 &'           CONTINUE  '-40.409316329&'                                                      CONTINUE  ''
+    def parse_spatial_extent(extent_string: str) -> list[SkyCoord]:
+        # print(f"Input:{extent_string}")
+        new_string = extent_string.replace('CONTINUE', '')
+        new_string = new_string.replace('POLYGON ICRS', '')
+        string_array = new_string.split(' ')
+        string_array = list(filter(lambda coord: coord != '', string_array))
+        # print(f"Output:{string_array}")
+        spatial_extent = []
+
+        if len(string_array) % 2 == 0:
+            while len(string_array) > 0:
+                ra = float(string_array.pop(0))
+                dec = float(string_array.pop(0))
+                new = SkyCoord(ra=ra*u.degree, dec=dec*u.degree, frame='icrs')
+                spatial_extent.append(new)
+                # print(new)
+        return spatial_extent
 
     def get_filter(self):
         return self.__filter

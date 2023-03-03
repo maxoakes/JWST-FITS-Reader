@@ -4,6 +4,7 @@ import datetime
 import numpy as np
 import skimage
 import skimage.transform
+from skimage.io import imsave
 from skimage.util import crop
 from scipy import ndimage as ndi
 from matplotlib import pyplot as plt
@@ -56,9 +57,9 @@ def main():
                 id = default_id
 
             # Acquire imaging data
-            available_filters = []
-            downloaded_items = download_mission(id)
-            mission = Mission(downloaded_items[0].get_metadata('target_name'))
+            downloaded_items, mission_path = download_mission(id)
+            mission = Mission(downloaded_items[0].get_metadata('target_name'), mission_path)
+            print(f"path:{mission.get_mission_path()}")
             print("\nOperating on FITS files...")
             for item in downloaded_items:
                 mission.add_item(item)
@@ -74,42 +75,72 @@ def main():
             
             # write working image data to memory
             channels: dict[str, Image] = { }
-            smallest_shape = (20000, 20000)
+            smallest_shape = [20000, 20000]
+            smallest_image_key = ''
             for description in mission.search(sortby='FILTER'):
-                t = 'SCI'
                 this_filter = f"{description.get_card(0, 'FILTER')}/{description.get_card(0,'PUPIL')}"
                 print(f"Creating image for {this_filter}")
-                channels[this_filter] = Image(description.get_card(0, 'FILTER'), 
-                    description.get_card(0,'PUPIL'), t, description.get_image(t), 
-                    description.get_card(t,'PA_V3'), description.get_card(t,'PIXAR_A2'),
-                    description.get_card(t,'RA_V1'), description.get_card(t,'DEC_V1'), 
-                    description.get_card(t,'CRPIX1'), description.get_card(t,'CRPIX2'),
-                    description.get_card(t,'XPOSURE'), 
-                    parse_spatial_extent(description.get_card(t, 'S_REGION')),
-                    description.get_card(t,'PC1_1'), description.get_card(t,'PC1_2'),
-                    description.get_card(t,'PC2_1'), description.get_card(t,'PC2_2'))
-                this_shape = (channels[this_filter].get_image().shape[0], channels[this_filter].get_image().shape[1])
-                print(this_shape)
-                if (this_shape[0] < smallest_shape[0]) and (this_shape[1] < smallest_shape[1]):
-                    smallest_shape = channels[this_filter].get_image()
-            print(f"Smallest resolution image is {smallest_shape}")
-            return
+                channels[this_filter] = Image(description.get_card(0, 'FILTER'), description.get_card(0, 'PUPIL'), 'SCI', description)
+
+                # get the smallest image resolution
+                x = channels[this_filter].get_image().shape[0]
+                y = channels[this_filter].get_image().shape[1]
+                # print(f"[{x}, {y}] < {smallest_shape}")
+                if (x < smallest_shape[0]) and (y < smallest_shape[1]):
+                    smallest_shape = list(channels[this_filter].get_image().shape)
+                    smallest_image_key = this_filter
+            print(f"Smallest resolution image is {smallest_shape}: {smallest_image_key}")
 
             # do all of my own alignment attempt steps
             # custom_alignment(false_channels)
 
+            # show_single_image(channels[smallest_image_key], max=25)
+            # return
             # alignment via astroalign
             import astroalign
-            new_red, red_mask = astroalign.register(false_channels['red'].get_image(), false_channels['green'].get_image(), detection_sigma=20)
-            new_blue, blue_mask = astroalign.register(false_channels['blue'].get_image(), false_channels['green'].get_image(), detection_sigma=20)
-            false_channels['red'].update_image(new_red)
-            false_channels['blue'].update_image(new_blue)
-            show_single_image(false_channels['red'], max=25)
+            default_max = 100
+            point_num = input(f"Number of control points for alignment (more=more time, more likely to get triangulation. Default={default_max}): ")
+            if not point_num:
+                point_num = default_max
+            print(f"Using max control points={point_num}")
+            smallest_image_key = 'F090W/CLEAR'
+            aligned_channels: dict[str, Image] = { }
+            # new_image, mask = astroalign.register(channels['F187N/CLEAR'].get_image(), channels[smallest_image_key].get_image(), detection_sigma=10)
+            # return
+            for filter, image in channels.items():
+                sigma = 10
+                if (filter != smallest_image_key):
+                    while(True):
+                        print(f"Attempting to align {filter} with detection sigma {sigma}")
+                        try:
+                            new_image, mask = astroalign.register(channels[filter].get_image(), channels[smallest_image_key].get_image(), max_control_points=point_num, detection_sigma=sigma)
+                            channels[filter].update_image(new_image)
+                            aligned_channels[filter] = channels[filter]
+                            print(f"Alignment found for {filter}")
+                            # show_single_image(channels[filter], max=25)
+                            break
+                        except astroalign.MaxIterError as exc:
+                            print(exc)
+                            print(f"Triangulation failure: {exc}")
+                            break
+                        except TypeError as exc:
+                            print(f"Failed to find alignment, iterating detection sigma: {exc}")
+                            sigma = sigma + 2
+                else:
+                    print(f"Skipping {filter} since it is the base alignment")
+                    aligned_channels[filter] = channels[smallest_image_key]
 
-            normalize_color_channels(false_channels['red'], false_channels['green'], false_channels['blue'], min=0, max=50)
+            print(aligned_channels.keys())
+            for filter, image in aligned_channels.items():
+                if not os.path.exists(os.path.join(os.getcwd(), mission_path, "aligned")):
+                    os.makedirs(os.path.join(os.getcwd(), mission_path, "aligned"))
+                file_out = np.clip(aligned_channels[filter].get_image(), 1, 64)
+                imsave(f"{mission_path}\\aligned\\{filter.replace('/','-')}.png", file_out)
+
+            # normalize_color_channels(channels['red'], channels['green'], channels['blue'], min=0, max=50)
             # display image(s)
             # show_color_image(mission.get_title(), false_channels['red'], false_channels['green'], false_channels['blue'])
-            show_all_channels(mission.get_title(), false_channels['red'], false_channels['green'], false_channels['blue'], min=0, max=1)
+            # show_all_channels(mission.get_title(), channels['red'], channels['green'], channels['blue'], min=0, max=1)
             # show_single_channel(mission.get_title(), false_channels['red'])
             return
     else:
@@ -256,25 +287,6 @@ def show_single_image(image: Image, axis='on', min=0, max=100):
     ax.set_title(f'{image.get_filter()}')
     plt.show()
 
-# S_REGION= 'POLYGON ICRS  151.721470971 -40.448319128 151.772509901 &'           CONTINUE  '-40.463765259 151.792874057 -40.424753501 151.741860051 &'           CONTINUE  '-40.409316329&'                                                      CONTINUE  ''
-def parse_spatial_extent(extent_string: str) -> list[SkyCoord]:
-    # print(f"Input:{extent_string}")
-    new_string = extent_string.replace('CONTINUE', '')
-    new_string = new_string.replace('POLYGON ICRS', '')
-    string_array = new_string.split(' ')
-    string_array = list(filter(lambda coord: coord != '', string_array))
-    # print(f"Output:{string_array}")
-    spatial_extent = []
-
-    if len(string_array) % 2 == 0:
-        while len(string_array) > 0:
-            ra = float(string_array.pop(0))
-            dec = float(string_array.pop(0))
-            new = SkyCoord(ra=ra*u.degree, dec=dec*u.degree, frame='icrs')
-            spatial_extent.append(new)
-            # print(new)
-    return spatial_extent
-
 def query(params: dict, do_print: bool):
     print(f"Querying for: {params}")
     base_params = {
@@ -306,6 +318,7 @@ def query(params: dict, do_print: bool):
 def download_mission(id: str) -> list[ImageDescription]:
     obs_table = query({'proposal_id': [id]}, False)
     all_descriptions = []
+    mission_path = ''
     # For each product in the query output
     for product in obs_table:
         # Create a dictionary object that contains all data from that row
@@ -319,6 +332,7 @@ def download_mission(id: str) -> list[ImageDescription]:
         if row['filters'] != 'CLEAR':
             # get directories for files
             base_dir = os.path.join("missions", row['target_name'])
+            mission_path = base_dir
             data_path = os.path.join(base_dir, "data")
             preview_path = os.path.join(base_dir, "preview")
 
@@ -353,7 +367,7 @@ def download_mission(id: str) -> list[ImageDescription]:
             )
             # add this information to the return object
             all_descriptions.append(this_image)
-    return all_descriptions
+    return (all_descriptions, mission_path)
 
 if __name__ == '__main__':
     main()
