@@ -36,6 +36,22 @@ from Image import Image
 # F444W: infrared 4440nm - wide
 # F410M: infrared 4410nm - medium
 
+#   longest wave length
+# red (1,0,0)
+# orange (0.666, 0.333, 0)
+# yellow (0.5, 0.5, 0)
+# lime (0.333, 0.666, 0)
+# green (0, 1, 0)
+# seafoam (0, 0.666, 0.333)
+# cyan (0, 0.5, 0.5)
+# skyblue (0, 0.333, 0.666)
+# blue (0, 0, 1)
+# purple (0.333, 0, 0.666)
+# magenta (0.5, 0, 0.5)
+# violet (0.666, 0, 0.333)
+#   shortest wave length
+# selection max = 12
+
 def main():
     if len(sys.argv) != 1:
         if (sys.argv[1] == 'query'):
