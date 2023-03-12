@@ -4,7 +4,7 @@ import datetime
 import numpy as np
 import skimage
 import skimage.transform
-from skimage.io import imsave
+from skimage.io import imsave, imread
 from skimage.util import crop
 from scipy import ndimage as ndi
 from matplotlib import pyplot as plt
@@ -16,7 +16,7 @@ from astroquery.mast import Observations
 from ImageDescription import ImageDescription
 from Mission import Mission
 from Card import Card
-from Image import Image
+from RawImage import RawImage
 
 # header[0]['GS_V3_PA'] = rotation of image? up to 14 digits past .
 # header[0]['GS_RA'] = guide star right ascension?
@@ -90,74 +90,163 @@ def main():
                         i.write_fits_header_to_file(t)
             
             # write working image data to memory
-            channels: dict[str, Image] = { }
+            filter_images: dict[str, RawImage] = { }
             smallest_shape = [20000, 20000]
             smallest_image_key = ''
             for description in mission.search(sortby='FILTER'):
                 this_filter = f"{description.get_card(0, 'FILTER')}/{description.get_card(0,'PUPIL')}"
                 print(f"Creating image for {this_filter}")
-                channels[this_filter] = Image(description.get_card(0, 'FILTER'), description.get_card(0, 'PUPIL'), 'SCI', description)
+                filter_images[this_filter] = RawImage(description.get_card(0, 'FILTER'), description.get_card(0, 'PUPIL'), 'SCI', description)
 
                 # get the smallest image resolution
-                x = channels[this_filter].get_image().shape[0]
-                y = channels[this_filter].get_image().shape[1]
+                x = filter_images[this_filter].get_image().shape[0]
+                y = filter_images[this_filter].get_image().shape[1]
                 # print(f"[{x}, {y}] < {smallest_shape}")
                 if (x < smallest_shape[0]) and (y < smallest_shape[1]):
-                    smallest_shape = list(channels[this_filter].get_image().shape)
+                    smallest_shape = list(filter_images[this_filter].get_image().shape)
                     smallest_image_key = this_filter
             print(f"Smallest resolution image is {smallest_shape}: {smallest_image_key}")
 
+            # brightness clamping
+            decimals = 2
+            for filter, image in filter_images.items():
+                min = np.round(np.min(image.get_image()), decimals)
+                max = np.round(np.max(image.get_image()), decimals)
+                avg = np.round(np.average(image.get_image()), decimals)
+                median = np.round(np.median(image.get_image()), decimals)
+                upper_quartile = np.round(np.quantile(image.get_image(), 0.999))
+                print(f"{filter}: Min: {min}, Max: {max}, Avg: {avg}, Median: {median}, Quartile:{upper_quartile}")
+                clipped = np.clip(image.get_image(), 0, upper_quartile)
+                clipped = clipped / upper_quartile
+                print(f"{filter} clipped to [{np.min(clipped)}, {np.max(clipped)}]")
+                image.update_image(clipped)
+
             # do all of my own alignment attempt steps
-            # custom_alignment(false_channels)
+            # custom_alignment(filter_images)
 
-            # show_single_image(channels[smallest_image_key], max=25)
-            # return
             # alignment via astroalign
-            import astroalign
-            default_max = 100
-            point_num = input(f"Number of control points for alignment (more=more time, more likely to get triangulation. Default={default_max}): ")
-            if not point_num:
-                point_num = default_max
-            print(f"Using max control points={point_num}")
-            smallest_image_key = 'F090W/CLEAR'
-            aligned_channels: dict[str, Image] = { }
-            # new_image, mask = astroalign.register(channels['F187N/CLEAR'].get_image(), channels[smallest_image_key].get_image(), detection_sigma=10)
-            # return
-            for filter, image in channels.items():
-                sigma = 10
-                if (filter != smallest_image_key):
-                    while(True):
-                        print(f"Attempting to align {filter} with detection sigma {sigma}")
-                        try:
-                            new_image, mask = astroalign.register(channels[filter].get_image(), channels[smallest_image_key].get_image(), max_control_points=point_num, detection_sigma=sigma)
-                            channels[filter].update_image(new_image)
-                            aligned_channels[filter] = channels[filter]
-                            print(f"Alignment found for {filter}")
-                            # show_single_image(channels[filter], max=25)
-                            break
-                        except astroalign.MaxIterError as exc:
-                            print(exc)
-                            print(f"Triangulation failure: {exc}")
-                            break
-                        except TypeError as exc:
-                            print(f"Failed to find alignment, iterating detection sigma: {exc}")
-                            sigma = sigma + 2
-                else:
-                    print(f"Skipping {filter} since it is the base alignment")
-                    aligned_channels[filter] = channels[smallest_image_key]
+            aligned_filter_channels: dict[str, np.ndarray] = { }
+            if os.path.exists(os.path.join(os.getcwd(), mission_path, "aligned")):
+                # for each image in the aligned folder, just load that rather than make an alignment
+                print(f"Alignment folder already exists. Assuming everything is valid. Skipping alignment.")
+                for image_file in os.listdir(os.path.join(os.getcwd(), mission_path, "aligned")):
+                    filter_name = image_file.replace('-','/').replace('.png','')
+                    print(f"Loading {image_file} to {filter_name}...")
+                    aligned_filter_channels[filter_name] = imread(os.path.join(os.getcwd(), mission_path, "aligned", image_file))
+            else:
+                import astroalign
+                default_max = 100
+                point_num = input(f"Number of control points for alignment (more=more time, more likely to get triangulation. Default={default_max}): ")
+                if not point_num:
+                    point_num = default_max
+                print(f"Using max control points={point_num}")
+                smallest_image_key = 'F090W/CLEAR'
+                # if the aligned folder does not exist, we have no alignments done, so generate them
+                for filter, image in filter_images.items():
+                    file_name = f"{filter.replace('/','-')}.png"
+                    sigma = 10
+                    if (filter != smallest_image_key):
+                        while(True):
+                            print(f"Attempting to align {filter} with detection sigma {sigma}")
+                            try:
+                                new_image, mask = astroalign.register(filter_images[filter].get_image(), filter_images[smallest_image_key].get_image(), max_control_points=point_num, detection_sigma=sigma)
+                                aligned_filter_channels[filter] = new_image
+                                print(f"Alignment found for {filter}")
+                                break
+                            except astroalign.MaxIterError as exc:
+                                print(exc)
+                                print(f"Triangulation failure. Error given: {exc}")
+                                break
+                            except TypeError as exc:
+                                print(f"Failed to find alignment, iterating detection sigma. Error given: {exc}")
+                                sigma = sigma + 2
+                    else:
+                        print(f"Skipping {filter} since it is the base alignment")
+                        aligned_filter_channels[filter] = filter_images[smallest_image_key].get_image()
 
-            print(aligned_channels.keys())
-            for filter, image in aligned_channels.items():
-                if not os.path.exists(os.path.join(os.getcwd(), mission_path, "aligned")):
-                    os.makedirs(os.path.join(os.getcwd(), mission_path, "aligned"))
-                file_out = np.clip(aligned_channels[filter].get_image(), 1, 64)
-                imsave(f"{mission_path}\\aligned\\{filter.replace('/','-')}.png", file_out)
+                # for each generated alignment, save them to a file
+                for filter, image in aligned_filter_channels.items():
+                    print(f"Writing {filter} to disk...")
+                    if not os.path.exists(os.path.join(os.getcwd(), mission_path, "aligned")):
+                        os.makedirs(os.path.join(os.getcwd(), mission_path, "aligned"))
+                    uint8_version = (aligned_filter_channels[filter] * 255).astype('uint8')
+                    imsave(f"{mission_path}\\aligned\\{filter.replace('/','-')}.png", uint8_version)
 
-            # normalize_color_channels(channels['red'], channels['green'], channels['blue'], min=0, max=50)
-            # display image(s)
-            # show_color_image(mission.get_title(), false_channels['red'], false_channels['green'], false_channels['blue'])
-            # show_all_channels(mission.get_title(), channels['red'], channels['green'], channels['blue'], min=0, max=1)
-            # show_single_channel(mission.get_title(), false_channels['red'])
+            # create false color channels for each aligned image
+            false_channel_bank = [
+                ("red", (1, 0, 0)),
+                ("orange", (1, 0.5, 0)),
+                ("yellow", (1, 1, 0)),
+                ("lime", (0.5, 1, 0)),
+                ("green", (0, 1, 0)),
+                ("seafoam", (0, 1, 0.5)),
+                ("cyan", (0, 1, 1)),
+                ("skyblue", (0, 0.5, 1)),
+                ("blue", (0, 0, 1)),
+                ("purple", (0.5, 0, 1)),
+                ("magenta", (1, 0, 1)),
+                ("violet", (1, 0, 0.5))
+            ]
+
+            # come up with false-color assignment for each filter
+            keys = list(aligned_filter_channels.keys())
+            print(keys)
+            num_channels = len(aligned_filter_channels)
+            max_channels = len(false_channel_bank)
+            false_color_channels = { }
+            final_shape = (0,0,0)
+            mode = input("Choose one: (linspace|evenspace|first|last|random). Default is linspace: ")
+            if not mode:
+                mode = "linspace"
+            if mode == "linspace":
+                assigned_indicies = np.floor(np.linspace(0, max_channels-1, num=num_channels)).astype('int')
+                assignments = zip(range(0, num_channels), assigned_indicies)
+                print(list(assignments))
+                for i, index in enumerate(assigned_indicies):
+                    (mult_red, mult_green, mult_blue) = false_channel_bank[index][1]
+                    false_color_name = false_channel_bank[index][0]
+                    false_color_channels[false_color_name] = np.dstack((
+                        aligned_filter_channels[keys[i]] * mult_red,
+                        aligned_filter_channels[keys[i]] * mult_green,
+                        aligned_filter_channels[keys[i]] * mult_blue
+                    ))
+                    final_shape = false_color_channels[false_color_name].shape
+
+                    print(f"Created {false_color_name} image")
+            else:
+                pass
+
+            # write the false-channel images to files
+            channel_directory = "channels"
+            if not os.path.exists(os.path.join(os.getcwd(), mission_path, channel_directory)):
+                os.makedirs(os.path.join(os.getcwd(), mission_path, channel_directory))
+                for color, image in false_color_channels.items():
+                    print(f"Writing {color} to disk...")
+                    uint8_version = (false_color_channels[color] * 255).astype('uint8')
+                    imsave(f"{mission_path}\\{channel_directory}\\{color}.png", uint8_version)
+
+            # add the multi-false-colors into a regular RGB image
+            false_color_image = np.zeros(final_shape, dtype = float)
+
+            print(f"Assigning {num_channels} to at most {max_channels} channels")
+            # https://processing.org/reference/blend_.html
+            from PIL import Image
+            for color, image in false_color_channels.items():
+                factor = 1.0
+                false_color_image = Image.blend(Image.fromarray(np.uint8(false_color_image)), Image.fromarray(np.uint8(image)), 0.75) 
+                fig, ax = plt.subplots()
+                ax.imshow(false_color_image)
+                ax.set_title(color)
+                plt.show()
+            
+            # cast to uint8
+            print(np.max(false_color_image))
+            final_image = (false_color_image * (255/np.max(false_color_image))).astype('uint8')
+
+            fig, ax = plt.subplots()
+            ax.imshow(final_image, vmin=0, vmax=255)
+            ax.set_title("Final Color Image")
+            plt.show()
             return
     else:
         print("Please run one of the following:")
@@ -165,7 +254,7 @@ def main():
         print(f"`{sys.argv[0]} run` to download and process mission files. Have a proposal ID ready to enter.")
         print("Exiting...")
 
-def custom_alignment(image_dict: dict[str, Image]):
+def custom_alignment(image_dict: dict[str, RawImage]):
     # rescale images so each pixel measures the same area in space
     for color, image in image_dict.items():
         rescale_image(image, 0.07)
@@ -196,7 +285,7 @@ def custom_alignment(image_dict: dict[str, Image]):
     align_images(image_dict['red'], image_dict['blue'])
     align_images(image_dict['red'], image_dict['green'])
 
-def rescale_image(target_image: Image, target_size: float):
+def rescale_image(target_image: RawImage, target_size: float):
     # find the scale factor
     print(f"Starting size: {target_image.get_image_x()}*{target_image.get_image_y()}, pixel size: {target_image.get_pixel_side_length()}")
     scale_factor = target_size / target_image.get_pixel_side_length()
@@ -210,7 +299,7 @@ def rescale_image(target_image: Image, target_size: float):
         target_image.get_center_y()/scale_factor)
     print(f"new listed scale: {target_image.get_image_x()}*{target_image.get_image_y()}, pixel size: {target_image.get_pixel_side_length()}")
 
-def pad_set(red: Image, green: Image, blue: Image):
+def pad_set(red: RawImage, green: RawImage, blue: RawImage):
     largest = {'x': 0, 'y': 0}
     for i in [red, green, blue]:
         if i.get_image_x() > largest['x']:
@@ -229,12 +318,12 @@ def pad_set(red: Image, green: Image, blue: Image):
         i.update_image(padded)
     return
 
-def mark_center(image: Image):
+def mark_center(image: RawImage):
     marked = image.get_image()
     marked[int(image.get_center_x())][int(image.get_center_y())] = 0
     image.update_image(marked)
 
-def align_images(target_image: Image, image_to_move: Image):
+def align_images(target_image: RawImage, image_to_move: RawImage):
     difference = (int(target_image.get_center_x() - image_to_move.get_center_x()), int(target_image.get_center_y() - image_to_move.get_center_y()))
     print(f"Moving {image_to_move.get_filter()} by {difference}")
     rolled = np.roll(image_to_move.get_image(), difference[0] + 8, axis=1)
@@ -242,12 +331,12 @@ def align_images(target_image: Image, image_to_move: Image):
     image_to_move.update_image(rolled)
     return
 
-def normalize_color_channels(red: Image, blue: Image, green: Image, min=-1, max=100):
+def normalize_color_channels(red: RawImage, blue: RawImage, green: RawImage, min=-1, max=100):
     for channel in [red, green, blue]:
         normalized = (channel.get_image() - min) / max
         channel.update_image(normalized)
 
-def normalize_exposure(target_exposure: float, red: Image, blue: Image, green: Image):
+def normalize_exposure(target_exposure: float, red: RawImage, blue: RawImage, green: RawImage):
     for channel in [red, green, blue]:
         exposure_diff = channel.get_exposure_time() - target_exposure
         print(f"Exposure difference {channel.get_filter()}: {exposure_diff}")
@@ -256,19 +345,19 @@ def normalize_exposure(target_exposure: float, red: Image, blue: Image, green: I
         new_image = channel.get_image() - (channel.get_image() / channel.get_exposure_time()) * exposure_diff
         channel.update_image(new_image)
 
-def set_mean_brightness(target_mean: float, red: Image, blue: Image, green: Image):
+def set_mean_brightness(target_mean: float, red: RawImage, blue: RawImage, green: RawImage):
     for channel in [red, green, blue]:
         this_mean = np.average(channel.get_image())
         new_image = channel.get_image() * (target_mean / this_mean)
         channel.update_image(new_image)
 
-def show_color_image(title, red: Image, blue: Image, green: Image):
+def show_color_image(title, color_image):
     fig, ax = plt.subplots()
-    ax.imshow(np.dstack((red.get_image(), green.get_image(), blue.get_image()))) # color
+    ax.imshow(color_image) # color
     ax.set_title(title)
     plt.show()
 
-def show_all_channels(title, red: Image, blue: Image, green: Image, min=0, max=1, axis='on'):
+def show_all_channels(title, red: RawImage, blue: RawImage, green: RawImage, min=0, max=1, axis='on'):
     color = np.dstack((red.get_image(), green.get_image(), blue.get_image()))
     fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(10, 10), sharex=True, sharey=True)
     ax = axes.ravel()
@@ -296,7 +385,7 @@ def show_all_channels(title, red: Image, blue: Image, green: Image, min=0, max=1
     plt.tight_layout()
     plt.show()
 
-def show_single_image(image: Image, axis='on', min=0, max=100):
+def show_single_image(image: RawImage, axis='on', min=0, max=100):
     fig, ax = plt.subplots()
     ax.imshow(image.get_image(), cmap='gray', vmin=min, vmax=max)
     ax.axis(axis)

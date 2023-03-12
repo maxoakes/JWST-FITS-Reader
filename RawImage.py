@@ -8,7 +8,7 @@ from astropy.io import fits
 from Card import Card
 from ImageDescription import ImageDescription
 
-class Image:
+class RawImage:
     __filter: str
     __pupil: str
     __data_type: str
@@ -33,7 +33,7 @@ class Image:
         self.__centerX = header['CRPIX1']
         self.__centerY = header['CRPIX2']
         self.exposure = header['XPOSURE'], 
-        self.extent = Image.parse_spatial_extent(header['S_REGION']),
+        self.extent = RawImage.parse_spatial_extent(header['S_REGION']),
         self.__matrix_transform = [[header['PC1_1'],header['PC1_2']],[header['PC2_1'],header['PC2_2']]]
         self.__data_type = index
 
