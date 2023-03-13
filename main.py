@@ -122,9 +122,6 @@ def main():
                 image.update_image(clipped)
 
             # do all of my own alignment attempt steps
-            # custom_alignment(filter_images)
-
-            # alignment via astroalign
             aligned_filter_channels: dict[str, np.ndarray] = { }
             if os.path.exists(os.path.join(os.getcwd(), mission_path, "aligned")):
                 # for each image in the aligned folder, just load that rather than make an alignment
@@ -134,43 +131,90 @@ def main():
                     print(f"Loading {image_file} to {filter_name}...")
                     aligned_filter_channels[filter_name] = imread(os.path.join(os.getcwd(), mission_path, "aligned", image_file))
             else:
-                import astroalign
-                default_max = 100
-                point_num = input(f"Number of control points for alignment (more=more time, more likely to get triangulation. Default={default_max}): ")
-                if not point_num:
-                    point_num = default_max
-                print(f"Using max control points={point_num}")
-                smallest_image_key = 'F090W/CLEAR'
-                # if the aligned folder does not exist, we have no alignments done, so generate them
-                for filter, image in filter_images.items():
-                    file_name = f"{filter.replace('/','-')}.png"
-                    sigma = 10
-                    if (filter != smallest_image_key):
-                        while(True):
-                            print(f"Attempting to align {filter} with detection sigma {sigma}")
-                            try:
-                                new_image, mask = astroalign.register(filter_images[filter].get_image(), filter_images[smallest_image_key].get_image(), max_control_points=point_num, detection_sigma=sigma)
-                                aligned_filter_channels[filter] = new_image
-                                print(f"Alignment found for {filter}")
-                                break
-                            except astroalign.MaxIterError as exc:
-                                print(exc)
-                                print(f"Triangulation failure. Error given: {exc}")
-                                break
-                            except TypeError as exc:
-                                print(f"Failed to find alignment, iterating detection sigma. Error given: {exc}")
-                                sigma = sigma + 2
-                    else:
-                        print(f"Skipping {filter} since it is the base alignment")
-                        aligned_filter_channels[filter] = filter_images[smallest_image_key].get_image()
+                # CUSTOM ALIGNMENT
+                alignment_type = input("Alignment type (astroalign|custom)? (Default = astroalign): ")
+                if not alignment_type:
+                    alignment_type = "astroalign"
+                if alignment_type == "custom":
+                    print("Performing custom naive alignment")
+                    # rescale images so each pixel measures the same area in space
+                    for color, image in filter_images.items():
+                        rescale_image(image, 0.07)
+                        mark_center(image)
 
-                # for each generated alignment, save them to a file
-                for filter, image in aligned_filter_channels.items():
-                    print(f"Writing {filter} to disk...")
-                    if not os.path.exists(os.path.join(os.getcwd(), mission_path, "aligned")):
-                        os.makedirs(os.path.join(os.getcwd(), mission_path, "aligned"))
-                    uint8_version = (aligned_filter_channels[filter] * 255).astype('uint8')
-                    imsave(f"{mission_path}\\aligned\\{filter.replace('/','-')}.png", uint8_version)
+                    # set all images to the same resolution and pad them
+                    largest = {'x': 0, 'y': 0}
+                    for filter, image in filter_images.items():
+                        if image.get_image_x() > largest['x']:
+                            largest['x'] = image.get_image_x()
+                        if image.get_image_y() > largest['y']:
+                            largest['y'] = image.get_image_y()
+
+                    import cv2
+                    for filter, image in filter_images.items():
+                        padded = cv2.copyMakeBorder(image.get_image(), 
+                        0, # top
+                        largest['y'] - image.get_image_y(), # bottom
+                        0, # left
+                        largest['x'] - image.get_image_x(), #right
+                        cv2.BORDER_CONSTANT, value=1.0)
+                        image.update_image(padded)
+
+                    # align the images so they all have the same 'center'
+                    keys = list(filter_images.keys())
+                    target_image = filter_images[keys[0]]
+                    for filter, image in filter_images.items():
+                        difference = (int(target_image.get_center_x() - image.get_center_x()), int(target_image.get_center_y() - image.get_center_y()))
+                        print(f"Moving {filter} by {difference}")
+                        rolled = np.roll(image.get_image(), difference[0], axis=1)
+                        rolled = np.roll(rolled, difference[1], axis=0)
+                        image.update_image(rolled)
+
+                    # move the images to the aligned channel dict
+                    for filter, image in filter_images.items():
+                        aligned_filter_channels[filter] = image.get_image()
+
+                # ASTRO ALIGN AUTO
+                else:
+                    # alignment via astroalign
+                    print("Performing astroalign (automatic)")
+                    import astroalign
+                    default_max = 100
+                    point_num = input(f"Number of control points for alignment (more=more time, more likely to get triangulation. Default={default_max}): ")
+                    if not point_num:
+                        point_num = default_max
+                    print(f"Using max control points={point_num}")
+                    smallest_image_key = 'F090W/CLEAR'
+                    # if the aligned folder does not exist, we have no alignments done, so generate them
+                    for filter, image in filter_images.items():
+                        file_name = f"{filter.replace('/','-')}.png"
+                        sigma = 10
+                        if (filter != smallest_image_key):
+                            while(True):
+                                print(f"Attempting to align {filter} with detection sigma {sigma}")
+                                try:
+                                    new_image, mask = astroalign.register(filter_images[filter].get_image(), filter_images[smallest_image_key].get_image(), max_control_points=point_num, detection_sigma=sigma)
+                                    aligned_filter_channels[filter] = new_image
+                                    print(f"Alignment found for {filter}")
+                                    break
+                                except astroalign.MaxIterError as exc:
+                                    print(exc)
+                                    print(f"Triangulation failure. Error given: {exc}")
+                                    break
+                                except TypeError as exc:
+                                    print(f"Failed to find alignment, iterating detection sigma. Error given: {exc}")
+                                    sigma = sigma + 2
+                        else:
+                            print(f"Skipping {filter} since it is the base alignment")
+                            aligned_filter_channels[filter] = filter_images[smallest_image_key].get_image()
+
+            # for each generated alignment, save them to a file
+            for filter, image in aligned_filter_channels.items():
+                print(f"Writing {filter} to disk...")
+                if not os.path.exists(os.path.join(os.getcwd(), mission_path, "aligned")):
+                    os.makedirs(os.path.join(os.getcwd(), mission_path, "aligned"))
+                uint8_version = (aligned_filter_channels[filter] * 255).astype('uint8')
+                imsave(f"{mission_path}\\aligned\\{filter.replace('/','-')}.png", uint8_version)
 
             # create false color channels for each aligned image
             false_channel_bank = [
@@ -254,37 +298,6 @@ def main():
         print(f"`{sys.argv[0]} run` to download and process mission files. Have a proposal ID ready to enter.")
         print("Exiting...")
 
-def custom_alignment(image_dict: dict[str, RawImage]):
-    # rescale images so each pixel measures the same area in space
-    for color, image in image_dict.items():
-        rescale_image(image, 0.07)
-        print()
-        print(image)
-    
-    for color, image in image_dict.items():
-        mark_center(image)
-
-    # optional: exposure time equalization, brightness equalization
-    # needed: projection extent correction to align all channels
-
-    # min_exposure_time = np.min([image_dict['red'].get_exposure_time(), image_dict['blue'].get_exposure_time(), image_dict['green'].get_exposure_time()])
-    # print(f"Min Exposure Time is {min_exposure_time} sec")
-    # # normalize_exposure(min_exposure_time, image_dict['red'], image_dict['blue'], image_dict['green'])
-
-    # max_mean_brightness = np.max([
-    #     np.average(image_dict['red'].get_image()), 
-    #     np.average(image_dict['blue'].get_image()), 
-    #     np.average(image_dict['green'].get_image())])
-    # print(f"Max mean brightness {max_mean_brightness}")
-    # set_mean_brightness(max_mean_brightness, image_dict['red'], image_dict['blue'], image_dict['green'])
-
-    # set all images to the same resolution
-    pad_set(image_dict['red'], image_dict['green'], image_dict['blue'])
-    # image_dict = rescale_method_1(image_dict['red'], image_dict['green'], image_dict['blue'])
-
-    align_images(image_dict['red'], image_dict['blue'])
-    align_images(image_dict['red'], image_dict['green'])
-
 def rescale_image(target_image: RawImage, target_size: float):
     # find the scale factor
     print(f"Starting size: {target_image.get_image_x()}*{target_image.get_image_y()}, pixel size: {target_image.get_pixel_side_length()}")
@@ -299,37 +312,14 @@ def rescale_image(target_image: RawImage, target_size: float):
         target_image.get_center_y()/scale_factor)
     print(f"new listed scale: {target_image.get_image_x()}*{target_image.get_image_y()}, pixel size: {target_image.get_pixel_side_length()}")
 
-def pad_set(red: RawImage, green: RawImage, blue: RawImage):
-    largest = {'x': 0, 'y': 0}
-    for i in [red, green, blue]:
-        if i.get_image_x() > largest['x']:
-            largest['x'] = i.get_image_x()
-        if i.get_image_y() > largest['y']:
-            largest['y'] = i.get_image_y()
+def pad_set(target_image_key: str, channels: dict[str, RawImage]):
 
-    import cv2
-    for i in [red, green, blue]:
-        padded = cv2.copyMakeBorder(i.get_image(), 
-        0, # top
-        largest['y'] - i.get_image_y(), # bottom
-        0, # left
-        largest['x'] - i.get_image_x(), #right
-        cv2.BORDER_CONSTANT, value=1000)
-        i.update_image(padded)
     return
 
 def mark_center(image: RawImage):
     marked = image.get_image()
     marked[int(image.get_center_x())][int(image.get_center_y())] = 0
     image.update_image(marked)
-
-def align_images(target_image: RawImage, image_to_move: RawImage):
-    difference = (int(target_image.get_center_x() - image_to_move.get_center_x()), int(target_image.get_center_y() - image_to_move.get_center_y()))
-    print(f"Moving {image_to_move.get_filter()} by {difference}")
-    rolled = np.roll(image_to_move.get_image(), difference[0] + 8, axis=1)
-    rolled = np.roll(rolled, difference[1] - 7, axis=0)
-    image_to_move.update_image(rolled)
-    return
 
 def normalize_color_channels(red: RawImage, blue: RawImage, green: RawImage, min=-1, max=100):
     for channel in [red, green, blue]:

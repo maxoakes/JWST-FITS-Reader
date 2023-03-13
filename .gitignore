@@ -1,6 +1,7 @@
 __pycache__
 # dev things not ready for prod
 wip
+.vscode
 
 # big directories
 missions
