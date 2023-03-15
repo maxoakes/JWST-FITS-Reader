@@ -17,15 +17,7 @@ from ImageDescription import ImageDescription
 from Mission import Mission
 from Card import Card
 from RawImage import RawImage
-
-# header[0]['GS_V3_PA'] = rotation of image? up to 14 digits past .
-# header[0]['GS_RA'] = guide star right ascension?
-# header[0]['GS_DEC'] = guide star declination?
-# header[1]['RA_V1']
-# header[1]['DEC_V1']
-# header[1]['PA_V3']
-# header[1]['PIXAR_SR'] = Nominal pixel area in steradians
-# header[1]['PIXAR_A2'] = Nominal pixel area in arcsec^2
+from Query import Query
 
 # F090W: low infrared 900nm - wide
 # F115W: low infrared 1150nm - wide
@@ -53,250 +45,257 @@ from RawImage import RawImage
 # selection max = 12
 
 def main():
-    if len(sys.argv) != 1:
-        if (sys.argv[1] == 'query'):
-            search_params = {}
-            for p in [['target_name', 'Name of the object being imaged: '], 
-                      ['obs_title', 'Formal title of Project: '],
-                      ['proposal_id', 'Proposal ID: ']]:
-                inp = input(p[1])
-                if (inp):
-                    search_params[p[0]] = [inp]
-            query(search_params, True)
-            return
-        if (sys.argv[1] == 'run'):
-            default_id = 2733 # NGC 3132, small nebulae
-            # 1415 = mars
-            # 2282 # 'A Strongly Magnified Individual Star and Parsec-Scale Clusters Observed in the First Billion Years at z = 6'
-            id = input("Proposal ID: ")
-            if not id:
-                id = default_id
+    # bad program start
+    if len(sys.argv) == 1:
+        print_help()
+        return
+    
+    # run query to download csv
+    if (sys.argv[1] == 'query'):
+        search_params = {}
+        for p in [['target_name', 'Name of the object being imaged: '], 
+                    ['obs_title', 'Formal title of Project: '],
+                    ['proposal_id', 'Proposal ID: ']]:
+            inp = input(p[1])
+            if (inp):
+                search_params[p[0]] = [inp]
+        Query.run_query(search_params, True)
+        return
+    
+    # run the program, then give a proposal ID
+    if (sys.argv[1] == 'run'):
+        default_id = 2733 # NGC 3132, small nebulae
+        id = input("Proposal ID: ")
+        if not id:
+            id = default_id
 
-            # Acquire imaging data
-            downloaded_items, mission_path = download_mission(id)
-            mission = Mission(downloaded_items[0].get_metadata('target_name'), mission_path)
-            print(f"path:{mission.get_mission_path()}")
-            print("\nOperating on FITS files...")
-            for item in downloaded_items:
-                mission.add_item(item)
-                
-            print(f"Initialized {mission}")
-            all = mission.search()
-            if (len(sys.argv) > 2 and sys.argv[2] == 'headers'):
-                print("Writing headers to file")
-                for i in all:
-                    i.print_fits_table()
-                    for t in [0,1,2]:
-                        i.write_fits_header_to_file(t)
+        # Acquire imaging data
+        downloaded_items, mission_path = Query.download_mission(id)
+        mission = Mission(downloaded_items[0].get_metadata('target_name'), mission_path)
+        print(f"path:{mission.get_mission_path()}")
+        print("\nOperating on FITS files...")
+        for item in downloaded_items:
+            mission.add_item(item)
             
-            # write working image data to memory
-            filter_images: dict[str, RawImage] = { }
-            smallest_shape = [20000, 20000]
-            smallest_image_key = ''
-            for description in mission.search(sortby='FILTER'):
-                this_filter = f"{description.get_card(0, 'FILTER')}/{description.get_card(0,'PUPIL')}"
-                print(f"Creating image for {this_filter}")
-                filter_images[this_filter] = RawImage(description.get_card(0, 'FILTER'), description.get_card(0, 'PUPIL'), 'SCI', description)
+        print(f"Initialized {mission}")
+        all = mission.search()
+        if (len(sys.argv) > 2 and sys.argv[2] == 'headers'):
+            print("Writing headers to file")
+            for i in all:
+                i.print_fits_table()
+                for t in [0,1,2]:
+                    i.write_fits_header_to_file(t)
+        
+        # write working image data to memory
+        filter_images: dict[str, RawImage] = { }
+        smallest_shape = [20000, 20000]
+        smallest_image_key = ''
+        for description in mission.search(sortby='FILTER'):
+            this_filter = f"{description.get_card(0, 'FILTER')}/{description.get_card(0,'PUPIL')}"
+            print(f"Creating image for {this_filter}")
+            filter_images[this_filter] = RawImage(description.get_card(0, 'FILTER'), description.get_card(0, 'PUPIL'), 'SCI', description)
 
-                # get the smallest image resolution
-                x = filter_images[this_filter].get_image().shape[0]
-                y = filter_images[this_filter].get_image().shape[1]
-                # print(f"[{x}, {y}] < {smallest_shape}")
-                if (x < smallest_shape[0]) and (y < smallest_shape[1]):
-                    smallest_shape = list(filter_images[this_filter].get_image().shape)
-                    smallest_image_key = this_filter
-            print(f"Smallest resolution image is {smallest_shape}: {smallest_image_key}")
+            # get the smallest image resolution
+            x = filter_images[this_filter].get_image().shape[0]
+            y = filter_images[this_filter].get_image().shape[1]
+            # print(f"[{x}, {y}] < {smallest_shape}")
+            if (x < smallest_shape[0]) and (y < smallest_shape[1]):
+                smallest_shape = list(filter_images[this_filter].get_image().shape)
+                smallest_image_key = this_filter
+        print(f"Smallest resolution image is {smallest_shape}: {smallest_image_key}")
 
-            # brightness clamping
-            decimals = 2
-            for filter, image in filter_images.items():
-                min = np.round(np.min(image.get_image()), decimals)
-                max = np.round(np.max(image.get_image()), decimals)
-                avg = np.round(np.average(image.get_image()), decimals)
-                median = np.round(np.median(image.get_image()), decimals)
-                upper_quartile = np.round(np.quantile(image.get_image(), 0.999))
-                print(f"{filter}: Min: {min}, Max: {max}, Avg: {avg}, Median: {median}, Quartile:{upper_quartile}")
-                clipped = np.clip(image.get_image(), 0, upper_quartile)
-                clipped = clipped / upper_quartile
-                print(f"{filter} clipped to [{np.min(clipped)}, {np.max(clipped)}]")
-                image.update_image(clipped)
+        # brightness clamping
+        decimals = 2
+        for filter, image in filter_images.items():
+            min = np.round(np.min(image.get_image()), decimals)
+            max = np.round(np.max(image.get_image()), decimals)
+            avg = np.round(np.average(image.get_image()), decimals)
+            median = np.round(np.median(image.get_image()), decimals)
+            upper_quartile = np.round(np.quantile(image.get_image(), 0.999))
+            print(f"{filter}: Min: {min}, Max: {max}, Avg: {avg}, Median: {median}, Quartile:{upper_quartile}")
+            clipped = np.clip(image.get_image(), 0, upper_quartile)
+            clipped = clipped / upper_quartile
+            print(f"{filter} clipped to [{np.min(clipped)}, {np.max(clipped)}]")
+            image.update_image(clipped)
 
-            # do all of my own alignment attempt steps
-            aligned_filter_channels: dict[str, np.ndarray] = { }
-            if os.path.exists(os.path.join(os.getcwd(), mission_path, "aligned")):
-                # for each image in the aligned folder, just load that rather than make an alignment
-                print(f"Alignment folder already exists. Assuming everything is valid. Skipping alignment.")
-                for image_file in os.listdir(os.path.join(os.getcwd(), mission_path, "aligned")):
-                    filter_name = image_file.replace('-','/').replace('.png','')
-                    print(f"Loading {image_file} to {filter_name}...")
-                    aligned_filter_channels[filter_name] = imread(os.path.join(os.getcwd(), mission_path, "aligned", image_file))
+        # do all of my own alignment attempt steps
+        aligned_filter_channels: dict[str, np.ndarray] = { }
+        if os.path.exists(os.path.join(os.getcwd(), mission_path, "aligned")):
+            # for each image in the aligned folder, just load that rather than make an alignment
+            print(f"Alignment folder already exists. Assuming everything is valid. Skipping alignment.")
+            for image_file in os.listdir(os.path.join(os.getcwd(), mission_path, "aligned")):
+                filter_name = image_file.replace('-','/').replace('.png','')
+                print(f"Loading {image_file} to {filter_name}...")
+                aligned_filter_channels[filter_name] = imread(os.path.join(os.getcwd(), mission_path, "aligned", image_file))
+        else:
+            # CUSTOM ALIGNMENT
+            alignment_type = input("Alignment type (astroalign|custom)? (Default = astroalign): ")
+            if not alignment_type:
+                alignment_type = "astroalign"
+            if alignment_type == "custom":
+                print("Performing custom naive alignment")
+                # rescale images so each pixel measures the same area in space
+                for color, image in filter_images.items():
+                    rescale_image(image, 0.07)
+                    mark_center(image)
+
+                # set all images to the same resolution and pad them
+                largest = {'x': 0, 'y': 0}
+                for filter, image in filter_images.items():
+                    if image.get_image_x() > largest['x']:
+                        largest['x'] = image.get_image_x()
+                    if image.get_image_y() > largest['y']:
+                        largest['y'] = image.get_image_y()
+
+                import cv2
+                for filter, image in filter_images.items():
+                    padded = cv2.copyMakeBorder(image.get_image(), 
+                    0, # top
+                    largest['y'] - image.get_image_y(), # bottom
+                    0, # left
+                    largest['x'] - image.get_image_x(), #right
+                    cv2.BORDER_CONSTANT, value=1.0)
+                    image.update_image(padded)
+
+                # align the images so they all have the same 'center'
+                keys = list(filter_images.keys())
+                target_image = filter_images[keys[0]]
+                for filter, image in filter_images.items():
+                    difference = (int(target_image.get_center_x() - image.get_center_x()), int(target_image.get_center_y() - image.get_center_y()))
+                    print(f"Moving {filter} by {difference}")
+                    rolled = np.roll(image.get_image(), difference[0], axis=1)
+                    rolled = np.roll(rolled, difference[1], axis=0)
+                    image.update_image(rolled)
+
+                # move the images to the aligned channel dict
+                for filter, image in filter_images.items():
+                    aligned_filter_channels[filter] = image.get_image()
+
+            # ASTRO ALIGN AUTO
             else:
-                # CUSTOM ALIGNMENT
-                alignment_type = input("Alignment type (astroalign|custom)? (Default = astroalign): ")
-                if not alignment_type:
-                    alignment_type = "astroalign"
-                if alignment_type == "custom":
-                    print("Performing custom naive alignment")
-                    # rescale images so each pixel measures the same area in space
-                    for color, image in filter_images.items():
-                        rescale_image(image, 0.07)
-                        mark_center(image)
+                # alignment via astroalign
+                print("Performing astroalign (automatic)")
+                import astroalign
+                default_max = 100
+                point_num = input(f"Number of control points for alignment (more=more time, more likely to get triangulation. Default={default_max}): ")
+                if not point_num:
+                    point_num = default_max
+                print(f"Using max control points={point_num}")
+                smallest_image_key = 'F090W/CLEAR'
+                # if the aligned folder does not exist, we have no alignments done, so generate them
+                for filter, image in filter_images.items():
+                    file_name = f"{filter.replace('/','-')}.png"
+                    sigma = 10
+                    if (filter != smallest_image_key):
+                        while(True):
+                            print(f"Attempting to align {filter} with detection sigma {sigma}")
+                            try:
+                                new_image, mask = astroalign.register(filter_images[filter].get_image(), filter_images[smallest_image_key].get_image(), max_control_points=point_num, detection_sigma=sigma)
+                                aligned_filter_channels[filter] = new_image
+                                print(f"Alignment found for {filter}")
+                                break
+                            except astroalign.MaxIterError as exc:
+                                print(exc)
+                                print(f"Triangulation failure. Error given: {exc}")
+                                break
+                            except TypeError as exc:
+                                print(f"Failed to find alignment, iterating detection sigma. Error given: {exc}")
+                                sigma = sigma + 2
+                    else:
+                        print(f"Skipping {filter} since it is the base alignment")
+                        aligned_filter_channels[filter] = filter_images[smallest_image_key].get_image()
 
-                    # set all images to the same resolution and pad them
-                    largest = {'x': 0, 'y': 0}
-                    for filter, image in filter_images.items():
-                        if image.get_image_x() > largest['x']:
-                            largest['x'] = image.get_image_x()
-                        if image.get_image_y() > largest['y']:
-                            largest['y'] = image.get_image_y()
+        # for each generated alignment, save them to a file
+        for filter, image in aligned_filter_channels.items():
+            print(f"Writing {filter} to disk...")
+            if not os.path.exists(os.path.join(os.getcwd(), mission_path, "aligned")):
+                os.makedirs(os.path.join(os.getcwd(), mission_path, "aligned"))
+            uint8_version = (aligned_filter_channels[filter] * 255).astype('uint8')
+            imsave(f"{mission_path}\\aligned\\{filter.replace('/','-')}.png", uint8_version)
 
-                    import cv2
-                    for filter, image in filter_images.items():
-                        padded = cv2.copyMakeBorder(image.get_image(), 
-                        0, # top
-                        largest['y'] - image.get_image_y(), # bottom
-                        0, # left
-                        largest['x'] - image.get_image_x(), #right
-                        cv2.BORDER_CONSTANT, value=1.0)
-                        image.update_image(padded)
+        # create false color channels for each aligned image
+        false_channel_bank = [
+            ("red", (1, 0, 0)),
+            ("orange", (1, 0.5, 0)),
+            ("yellow", (1, 1, 0)),
+            ("lime", (0.5, 1, 0)),
+            ("green", (0, 1, 0)),
+            ("seafoam", (0, 1, 0.5)),
+            ("cyan", (0, 1, 1)),
+            ("skyblue", (0, 0.5, 1)),
+            ("blue", (0, 0, 1)),
+            ("purple", (0.5, 0, 1)),
+            ("magenta", (1, 0, 1)),
+            ("violet", (1, 0, 0.5))
+        ]
 
-                    # align the images so they all have the same 'center'
-                    keys = list(filter_images.keys())
-                    target_image = filter_images[keys[0]]
-                    for filter, image in filter_images.items():
-                        difference = (int(target_image.get_center_x() - image.get_center_x()), int(target_image.get_center_y() - image.get_center_y()))
-                        print(f"Moving {filter} by {difference}")
-                        rolled = np.roll(image.get_image(), difference[0], axis=1)
-                        rolled = np.roll(rolled, difference[1], axis=0)
-                        image.update_image(rolled)
+        # come up with false-color assignment for each filter
+        keys = list(aligned_filter_channels.keys())
+        print(keys)
+        num_channels = len(aligned_filter_channels)
+        max_channels = len(false_channel_bank)
+        false_color_channels = { }
+        final_shape = (0,0,0)
+        mode = input("Choose one: (linspace|evenspace|first|last|random). Default is linspace: ")
+        if not mode:
+            mode = "linspace"
+        if mode == "linspace":
+            assigned_indicies = np.floor(np.linspace(0, max_channels-1, num=num_channels)).astype('int')
+            assignments = zip(range(0, num_channels), assigned_indicies)
+            print(list(assignments))
+            for i, index in enumerate(assigned_indicies):
+                (mult_red, mult_green, mult_blue) = false_channel_bank[index][1]
+                false_color_name = false_channel_bank[index][0]
+                false_color_channels[false_color_name] = np.dstack((
+                    aligned_filter_channels[keys[i]] * mult_red,
+                    aligned_filter_channels[keys[i]] * mult_green,
+                    aligned_filter_channels[keys[i]] * mult_blue
+                ))
+                final_shape = false_color_channels[false_color_name].shape
 
-                    # move the images to the aligned channel dict
-                    for filter, image in filter_images.items():
-                        aligned_filter_channels[filter] = image.get_image()
+                print(f"Created {false_color_name} image")
+        else:
+            pass
 
-                # ASTRO ALIGN AUTO
-                else:
-                    # alignment via astroalign
-                    print("Performing astroalign (automatic)")
-                    import astroalign
-                    default_max = 100
-                    point_num = input(f"Number of control points for alignment (more=more time, more likely to get triangulation. Default={default_max}): ")
-                    if not point_num:
-                        point_num = default_max
-                    print(f"Using max control points={point_num}")
-                    smallest_image_key = 'F090W/CLEAR'
-                    # if the aligned folder does not exist, we have no alignments done, so generate them
-                    for filter, image in filter_images.items():
-                        file_name = f"{filter.replace('/','-')}.png"
-                        sigma = 10
-                        if (filter != smallest_image_key):
-                            while(True):
-                                print(f"Attempting to align {filter} with detection sigma {sigma}")
-                                try:
-                                    new_image, mask = astroalign.register(filter_images[filter].get_image(), filter_images[smallest_image_key].get_image(), max_control_points=point_num, detection_sigma=sigma)
-                                    aligned_filter_channels[filter] = new_image
-                                    print(f"Alignment found for {filter}")
-                                    break
-                                except astroalign.MaxIterError as exc:
-                                    print(exc)
-                                    print(f"Triangulation failure. Error given: {exc}")
-                                    break
-                                except TypeError as exc:
-                                    print(f"Failed to find alignment, iterating detection sigma. Error given: {exc}")
-                                    sigma = sigma + 2
-                        else:
-                            print(f"Skipping {filter} since it is the base alignment")
-                            aligned_filter_channels[filter] = filter_images[smallest_image_key].get_image()
-
-            # for each generated alignment, save them to a file
-            for filter, image in aligned_filter_channels.items():
-                print(f"Writing {filter} to disk...")
-                if not os.path.exists(os.path.join(os.getcwd(), mission_path, "aligned")):
-                    os.makedirs(os.path.join(os.getcwd(), mission_path, "aligned"))
-                uint8_version = (aligned_filter_channels[filter] * 255).astype('uint8')
-                imsave(f"{mission_path}\\aligned\\{filter.replace('/','-')}.png", uint8_version)
-
-            # create false color channels for each aligned image
-            false_channel_bank = [
-                ("red", (1, 0, 0)),
-                ("orange", (1, 0.5, 0)),
-                ("yellow", (1, 1, 0)),
-                ("lime", (0.5, 1, 0)),
-                ("green", (0, 1, 0)),
-                ("seafoam", (0, 1, 0.5)),
-                ("cyan", (0, 1, 1)),
-                ("skyblue", (0, 0.5, 1)),
-                ("blue", (0, 0, 1)),
-                ("purple", (0.5, 0, 1)),
-                ("magenta", (1, 0, 1)),
-                ("violet", (1, 0, 0.5))
-            ]
-
-            # come up with false-color assignment for each filter
-            keys = list(aligned_filter_channels.keys())
-            print(keys)
-            num_channels = len(aligned_filter_channels)
-            max_channels = len(false_channel_bank)
-            false_color_channels = { }
-            final_shape = (0,0,0)
-            mode = input("Choose one: (linspace|evenspace|first|last|random). Default is linspace: ")
-            if not mode:
-                mode = "linspace"
-            if mode == "linspace":
-                assigned_indicies = np.floor(np.linspace(0, max_channels-1, num=num_channels)).astype('int')
-                assignments = zip(range(0, num_channels), assigned_indicies)
-                print(list(assignments))
-                for i, index in enumerate(assigned_indicies):
-                    (mult_red, mult_green, mult_blue) = false_channel_bank[index][1]
-                    false_color_name = false_channel_bank[index][0]
-                    false_color_channels[false_color_name] = np.dstack((
-                        aligned_filter_channels[keys[i]] * mult_red,
-                        aligned_filter_channels[keys[i]] * mult_green,
-                        aligned_filter_channels[keys[i]] * mult_blue
-                    ))
-                    final_shape = false_color_channels[false_color_name].shape
-
-                    print(f"Created {false_color_name} image")
-            else:
-                pass
-
-            # write the false-channel images to files
-            channel_directory = "channels"
-            if not os.path.exists(os.path.join(os.getcwd(), mission_path, channel_directory)):
-                os.makedirs(os.path.join(os.getcwd(), mission_path, channel_directory))
-                for color, image in false_color_channels.items():
-                    print(f"Writing {color} to disk...")
-                    uint8_version = (false_color_channels[color] * 255).astype('uint8')
-                    imsave(f"{mission_path}\\{channel_directory}\\{color}.png", uint8_version)
-
-            # add the multi-false-colors into a regular RGB image
-            false_color_image = np.zeros(final_shape, dtype = float)
-
-            print(f"Assigning {num_channels} to at most {max_channels} channels")
-            # https://processing.org/reference/blend_.html
-            from PIL import Image
+        # write the false-channel images to files
+        channel_directory = "channels"
+        if not os.path.exists(os.path.join(os.getcwd(), mission_path, channel_directory)):
+            os.makedirs(os.path.join(os.getcwd(), mission_path, channel_directory))
             for color, image in false_color_channels.items():
-                factor = 1.0
-                false_color_image = Image.blend(Image.fromarray(np.uint8(false_color_image)), Image.fromarray(np.uint8(image)), 0.75) 
-                fig, ax = plt.subplots()
-                ax.imshow(false_color_image)
-                ax.set_title(color)
-                plt.show()
-            
-            # cast to uint8
-            print(np.max(false_color_image))
-            final_image = (false_color_image * (255/np.max(false_color_image))).astype('uint8')
+                print(f"Writing {color} to disk...")
+                uint8_version = (false_color_channels[color] * 255).astype('uint8')
+                imsave(f"{mission_path}\\{channel_directory}\\{color}.png", uint8_version)
 
+        # add the multi-false-colors into a regular RGB image
+        false_color_image = np.zeros(final_shape, dtype = float)
+
+        print(f"Assigning {num_channels} to at most {max_channels} channels")
+        # https://processing.org/reference/blend_.html
+        from PIL import Image
+        for color, image in false_color_channels.items():
+            factor = 1.0
+            false_color_image = Image.blend(Image.fromarray(np.uint8(false_color_image)), Image.fromarray(np.uint8(image)), 0.75) 
             fig, ax = plt.subplots()
-            ax.imshow(final_image, vmin=0, vmax=255)
-            ax.set_title("Final Color Image")
+            ax.imshow(false_color_image)
+            ax.set_title(color)
             plt.show()
-            return
-    else:
-        print("Please run one of the following:")
-        print(f"`{sys.argv[0]} query` to search for project missions and print the query result to a file.")
-        print(f"`{sys.argv[0]} run` to download and process mission files. Have a proposal ID ready to enter.")
-        print("Exiting...")
+        
+        # cast to uint8
+        print(np.max(false_color_image))
+        final_image = (false_color_image * (255/np.max(false_color_image))).astype('uint8')
+
+        fig, ax = plt.subplots()
+        ax.imshow(final_image, vmin=0, vmax=255)
+        ax.set_title("Final Color Image")
+        plt.show()
+        return
+    print_help()
+
+def print_help():
+    print("Please run one of the following:")
+    print(f"`{sys.argv[0]} query` to search for project missions and print the query result to a file.")
+    print(f"`{sys.argv[0]} run` to download and process mission files. Have a proposal ID ready to enter.")
+    print("Exiting...")
 
 def rescale_image(target_image: RawImage, target_size: float):
     # find the scale factor
@@ -381,88 +380,6 @@ def show_single_image(image: RawImage, axis='on', min=0, max=100):
     ax.axis(axis)
     ax.set_title(f'{image.get_filter()}')
     plt.show()
-
-def query(params: dict, do_print: bool):
-    print(f"Querying for: {params}")
-    base_params = {
-        'dataRights': ["PUBLIC"],
-        'obs_collection': ["JWST"],
-        'dataproduct_type': ["image"],
-        'intentType': ["science"],
-        'instrument_name': ['NIRCAM'],
-        'calib_level': [3]
-    }
-    base_params.update(params)
-    print("Querying with the following parameters:")
-    print(base_params)
-    obs_table = Observations.query_criteria(**base_params)
-    if do_print:
-        print(obs_table)
-
-        print(f"Checking if query directory exists...")
-        if not os.path.exists(os.path.join(os.getcwd(), "queries")):
-            os.makedirs(os.path.join(os.getcwd(), "queries"))
-        print("Writing query result to file...")
-        now_string = datetime.datetime.now().strftime('%y%m%d_%H%M%S')
-        write_path = os.path.join(os.getcwd(), "queries", f'query{now_string}.csv')
-        obs_table.write(write_path, format='ascii.csv')
-        # data_products = Observations.get_product_list(obs_table)
-        # print(obs_table.keys())
-    return obs_table
-
-def download_mission(id: str) -> list[ImageDescription]:
-    obs_table = query({'proposal_id': [id]}, False)
-    all_descriptions = []
-    mission_path = ''
-    # For each product in the query output
-    for product in obs_table:
-        # Create a dictionary object that contains all data from that row
-        row = {}
-        for index, entry in enumerate(obs_table.keys()):
-            row[entry] = product[index]
-        this_image = ImageDescription(row)
-
-        # For the purpose of this project, we are only selecting the
-        # data that uses filters in NIRCAM observations
-        if row['filters'] != 'CLEAR':
-            # get directories for files
-            base_dir = os.path.join("missions", row['target_name'])
-            mission_path = base_dir
-            data_path = os.path.join(base_dir, "data")
-            preview_path = os.path.join(base_dir, "preview")
-
-            # create directories if they do not exist
-            print(f"\nChecking if mission directory exists for: {base_dir}")
-            if not os.path.exists(os.path.join(os.getcwd(), base_dir)):
-                os.makedirs(os.path.join(os.getcwd(), base_dir))
-                os.makedirs(os.path.join(os.getcwd(), data_path))
-                os.makedirs(os.path.join(os.getcwd(), preview_path))
-                print("Directories created")
-
-            # check if the file for this item exists
-            fits_file = os.path.normpath(f'{base_dir}\data\\' + os.path.basename(row['dataURL']))
-            preview_file = os.path.normpath(f'{base_dir}\preview\\' + os.path.basename(row['jpegURL']))
-            print(f'Checking if {fits_file} exists...')
-            if not os.path.isfile(fits_file) or not os.path.isfile(preview_file):
-                # download the data and preview images if they do not exist
-                # https://mast.stsci.edu/portal/Download/file?uri=mast:JWST/product/jw02282-o120_t001_nircam_clear-f277w_i2d.jpg
-                print(f"Checking for {os.path.basename(row['dataURL'])} in {os.getcwd()}")
-                Observations.download_file(row['dataURL'], local_path=fits_file)
-
-                print(f"Checking for {os.path.basename(row['jpegURL'])} in {os.getcwd()}")
-                Observations.download_file(row['jpegURL'], local_path=preview_file)
-
-            # if the data and preview file exist, assume they are all good and set the internal path to those files
-            else:
-                print(f'Assuming {fits_file} exists already')
-
-            this_image.set_files(
-                f"{base_dir}\data\{os.path.basename(row['dataURL'])}",
-                f"{base_dir}\preview\{os.path.basename(row['jpegURL'])}"
-            )
-            # add this information to the return object
-            all_descriptions.append(this_image)
-    return (all_descriptions, mission_path)
 
 if __name__ == '__main__':
     main()
