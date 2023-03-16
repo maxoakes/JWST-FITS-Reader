@@ -48,7 +48,7 @@ class Query:
         return obs_table
 
     def download_mission(id: str) -> list[ImageDescription]:
-        obs_table = Query.query({'proposal_id': [id]}, False)
+        obs_table = Query.run_query({'proposal_id': [id]}, False)
         all_descriptions = []
         mission_path = ''
         # For each product in the query output

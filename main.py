@@ -1,10 +1,11 @@
 import sys
 import os
 import datetime
+import traceback
 import numpy as np
 import skimage
 import skimage.transform
-from skimage.io import imsave, imread
+from skimage import io
 from skimage.util import crop
 from scipy import ndimage as ndi
 from matplotlib import pyplot as plt
@@ -18,31 +19,7 @@ from Mission import Mission
 from Card import Card
 from RawImage import RawImage
 from Query import Query
-
-# F090W: low infrared 900nm - wide
-# F115W: low infrared 1150nm - wide
-# F150W: low infrared 1500nm - wide
-# F200W: low infrared 2000nm - wide
-# F227W: infrared 2770nm - wide
-# F356W: infrared 3560nm - wide
-# F444W: infrared 4440nm - wide
-# F410M: infrared 4410nm - medium
-
-#   longest wave length
-# red (1,0,0)
-# orange (0.666, 0.333, 0)
-# yellow (0.5, 0.5, 0)
-# lime (0.333, 0.666, 0)
-# green (0, 1, 0)
-# seafoam (0, 0.666, 0.333)
-# cyan (0, 0.5, 0.5)
-# skyblue (0, 0.333, 0.666)
-# blue (0, 0, 1)
-# purple (0.333, 0, 0.666)
-# magenta (0.5, 0, 0.5)
-# violet (0.666, 0, 0.333)
-#   shortest wave length
-# selection max = 12
+from PIL import Image
 
 def main():
     # bad program start
@@ -113,7 +90,9 @@ def main():
             median = np.round(np.median(image.get_image()), decimals)
             upper_quartile = np.round(np.quantile(image.get_image(), 0.999))
             print(f"{filter}: Min: {min}, Max: {max}, Avg: {avg}, Median: {median}, Quartile:{upper_quartile}")
-            clipped = np.clip(image.get_image(), 0, upper_quartile)
+            lower_lim = 0.0
+            clipped = np.clip(image.get_image(), lower_lim, upper_quartile + lower_lim) - lower_lim
+            # show_single_filter(filter, clipped)
             clipped = clipped / upper_quartile
             print(f"{filter} clipped to [{np.min(clipped)}, {np.max(clipped)}]")
             image.update_image(clipped)
@@ -124,9 +103,11 @@ def main():
             # for each image in the aligned folder, just load that rather than make an alignment
             print(f"Alignment folder already exists. Assuming everything is valid. Skipping alignment.")
             for image_file in os.listdir(os.path.join(os.getcwd(), mission_path, "aligned")):
-                filter_name = image_file.replace('-','/').replace('.png','')
+                filter_name = image_file.replace('-','/').replace('.png','').replace('.tif','')
                 print(f"Loading {image_file} to {filter_name}...")
-                aligned_filter_channels[filter_name] = imread(os.path.join(os.getcwd(), mission_path, "aligned", image_file))
+                # aligned_filter_channels[filter_name] = io.imread(os.path.join(os.getcwd(), mission_path, "aligned", image_file)) / 255
+                aligned_filter_channels[filter_name] = io.imread(os.path.join(os.getcwd(), mission_path, "aligned", image_file))
+                aligned_filter_channels[filter_name] = load_image((os.path.join(os.getcwd(), mission_path, "aligned", image_file)), 'float32')
         else:
             # CUSTOM ALIGNMENT
             alignment_type = input("Alignment type (astroalign|custom)? (Default = astroalign): ")
@@ -200,60 +181,34 @@ def main():
                                 break
                             except TypeError as exc:
                                 print(f"Failed to find alignment, iterating detection sigma. Error given: {exc}")
-                                sigma = sigma + 2
+                                sigma = sigma + 4
                     else:
                         print(f"Skipping {filter} since it is the base alignment")
                         aligned_filter_channels[filter] = filter_images[smallest_image_key].get_image()
 
-        # for each generated alignment, save them to a file
+            # for each generated alignment, save them to a file
+            for filter, image in aligned_filter_channels.items():
+                print(f"Writing {filter} to disk...")
+                if not os.path.exists(os.path.join(os.getcwd(), mission_path, "aligned")):
+                    os.makedirs(os.path.join(os.getcwd(), mission_path, "aligned"))
+                uint8_version = (aligned_filter_channels[filter] * 255).astype('uint8')
+                float32_version = np.array(aligned_filter_channels[filter], dtype='float32')
+                save_image(float32_version, f"{mission_path}\\aligned", filter.replace('/','-'), 'float32')
+
+        # print checkin
         for filter, image in aligned_filter_channels.items():
-            print(f"Writing {filter} to disk...")
-            if not os.path.exists(os.path.join(os.getcwd(), mission_path, "aligned")):
-                os.makedirs(os.path.join(os.getcwd(), mission_path, "aligned"))
-            uint8_version = (aligned_filter_channels[filter] * 255).astype('uint8')
-            imsave(f"{mission_path}\\aligned\\{filter.replace('/','-')}.png", uint8_version)
-
-        # create false color channels for each aligned image
-        false_channel_bank = [
-            ("red", (1, 0, 0)),
-            ("orange", (1, 0.5, 0)),
-            ("yellow", (1, 1, 0)),
-            ("lime", (0.5, 1, 0)),
-            ("green", (0, 1, 0)),
-            ("seafoam", (0, 1, 0.5)),
-            ("cyan", (0, 1, 1)),
-            ("skyblue", (0, 0.5, 1)),
-            ("blue", (0, 0, 1)),
-            ("purple", (0.5, 0, 1)),
-            ("magenta", (1, 0, 1)),
-            ("violet", (1, 0, 0.5))
-        ]
-
-        # come up with false-color assignment for each filter
-        keys = list(aligned_filter_channels.keys())
-        print(keys)
-        num_channels = len(aligned_filter_channels)
-        max_channels = len(false_channel_bank)
-        false_color_channels = { }
-        final_shape = (0,0,0)
-        mode = input("Choose one: (linspace|evenspace|first|last|random). Default is linspace: ")
+            print(f"{filter} range is [{np.min(image)}, {np.max(image)}]")
+        
+        # come up with false-color images for each mono-color filter
+        default = "nasa"
+        false_color_images = { }
+        mode = input(f"Choose one: (basic|nasa). Default is {default}: ")
         if not mode:
-            mode = "linspace"
-        if mode == "linspace":
-            assigned_indicies = np.floor(np.linspace(0, max_channels-1, num=num_channels)).astype('int')
-            assignments = zip(range(0, num_channels), assigned_indicies)
-            print(list(assignments))
-            for i, index in enumerate(assigned_indicies):
-                (mult_red, mult_green, mult_blue) = false_channel_bank[index][1]
-                false_color_name = false_channel_bank[index][0]
-                false_color_channels[false_color_name] = np.dstack((
-                    aligned_filter_channels[keys[i]] * mult_red,
-                    aligned_filter_channels[keys[i]] * mult_green,
-                    aligned_filter_channels[keys[i]] * mult_blue
-                ))
-                final_shape = false_color_channels[false_color_name].shape
-
-                print(f"Created {false_color_name} image")
+            mode = default
+        if mode == "basic":
+            false_color_images = assign_basic_colors(aligned_filter_channels)
+        elif mode == "nasa":
+            false_color_images = assign_nasa_colors(aligned_filter_channels)
         else:
             pass
 
@@ -261,34 +216,49 @@ def main():
         channel_directory = "channels"
         if not os.path.exists(os.path.join(os.getcwd(), mission_path, channel_directory)):
             os.makedirs(os.path.join(os.getcwd(), mission_path, channel_directory))
-            for color, image in false_color_channels.items():
+            for color, image in false_color_images.items():
                 print(f"Writing {color} to disk...")
-                uint8_version = (false_color_channels[color] * 255).astype('uint8')
-                imsave(f"{mission_path}\\{channel_directory}\\{color}.png", uint8_version)
+                uint8_version = ((false_color_images[color] * 255)).astype('uint8')
+                save_image(uint8_version, f"{mission_path}\\{channel_directory}", color.replace('/','-'), 'uint8')
 
-        # add the multi-false-colors into a regular RGB image
-        false_color_image = np.zeros(final_shape, dtype = float)
+        # initialize decomposed final image
+        final_shape = aligned_filter_channels[list(aligned_filter_channels.keys())[0]].shape
+        final_image_channels = {
+            "red": np.zeros(final_shape),
+            "green": np.zeros(final_shape),
+            "blue": np.zeros(final_shape),
+        }
 
-        print(f"Assigning {num_channels} to at most {max_channels} channels")
-        # https://processing.org/reference/blend_.html
-        from PIL import Image
-        for color, image in false_color_channels.items():
-            factor = 1.0
-            false_color_image = Image.blend(Image.fromarray(np.uint8(false_color_image)), Image.fromarray(np.uint8(image)), 0.75) 
-            fig, ax = plt.subplots()
-            ax.imshow(false_color_image)
-            ax.set_title(color)
-            plt.show()
-        
-        # cast to uint8
-        print(np.max(false_color_image))
-        final_image = (false_color_image * (255/np.max(false_color_image))).astype('uint8')
+        # order from blue to red
+        keys = list(false_color_images.keys())
+        keys.sort()
+        keys = keys[:-1]
+        print(f"Order: {keys}")
+        max_color_value = 0.0
+        for color in keys:
+            red = get_channel(false_color_images[color], 'red')
+            green = get_channel(false_color_images[color], 'green')
+            blue = get_channel(false_color_images[color], 'blue')
+            # https://processing.org/reference/blend_.html
+            for name, data in (('red', red), ('green', green), ('blue', blue)):
+                # final_image_channels[name] = (data * 1) + final_image_channels[name] # blend
+                # final_image_channels[name] = np.minimum((data) + final_image_channels[name], 1.0) # add
+                final_image_channels[name] = np.maximum(data*1, final_image_channels[name]) # lighten
+                if np.max(final_image_channels[name]) > max_color_value:
+                    max_color_value = np.max(final_image_channels[name])
+    
+        # # normalize
+        # print(f"Found max color value of {max_color_value}")
+        # for color, image in final_image_channels.items():
+        #     final_image_channels[color] = final_image_channels[color] / max_color_value
 
-        fig, ax = plt.subplots()
-        ax.imshow(final_image, vmin=0, vmax=255)
-        ax.set_title("Final Color Image")
-        plt.show()
+        # output image
+        final_image = show_color_image_from_dict(final_image_channels)
+        timestamp_string = datetime.datetime.now().strftime('%y%m%d_%H%M%S')
+        io.imsave(f"{mission_path}\\output\\{timestamp_string}.png", (np.clip(final_image, 0, 1.0) * 255).astype('uint8'))
+        print("Write complete!")
         return
+        # end
     print_help()
 
 def print_help():
@@ -297,11 +267,11 @@ def print_help():
     print(f"`{sys.argv[0]} run` to download and process mission files. Have a proposal ID ready to enter.")
     print("Exiting...")
 
-def rescale_image(target_image: RawImage, target_size: float):
+def rescale_image(target_image: RawImage, target_size: float) -> None:
     # find the scale factor
-    print(f"Starting size: {target_image.get_image_x()}*{target_image.get_image_y()}, pixel size: {target_image.get_pixel_side_length()}")
+    print(f"{target_image.get_filter()}: Starting size: {target_image.get_image_x()}*{target_image.get_image_y()} with pixel size: {str(np.round(target_image.get_pixel_side_length(), 5))}")
     scale_factor = target_size / target_image.get_pixel_side_length()
-    print(f"scale factor to get to {target_size} pixel length: {scale_factor}x")
+    print(f"{target_image.get_filter()}: Scale factor to get to {target_size} pixel length: {scale_factor}x")
 
     # perform scaling operation
     rescaled = skimage.transform.rescale(target_image.get_image(), 1/scale_factor, anti_aliasing=False)
@@ -309,21 +279,12 @@ def rescale_image(target_image: RawImage, target_size: float):
     target_image.update_data(target_image.get_rotation(), (target_image.get_pixel_side_length() * scale_factor), 
         target_image.get_center_x()/scale_factor,
         target_image.get_center_y()/scale_factor)
-    print(f"new listed scale: {target_image.get_image_x()}*{target_image.get_image_y()}, pixel size: {target_image.get_pixel_side_length()}")
-
-def pad_set(target_image_key: str, channels: dict[str, RawImage]):
-
-    return
+    print(f"{target_image.get_filter()}: New listed scale: {target_image.get_image_x()}*{target_image.get_image_y()} with pixel size: {str(np.round(target_image.get_pixel_side_length(), 5))}")
 
 def mark_center(image: RawImage):
     marked = image.get_image()
     marked[int(image.get_center_x())][int(image.get_center_y())] = 0
     image.update_image(marked)
-
-def normalize_color_channels(red: RawImage, blue: RawImage, green: RawImage, min=-1, max=100):
-    for channel in [red, green, blue]:
-        normalized = (channel.get_image() - min) / max
-        channel.update_image(normalized)
 
 def normalize_exposure(target_exposure: float, red: RawImage, blue: RawImage, green: RawImage):
     for channel in [red, green, blue]:
@@ -334,52 +295,165 @@ def normalize_exposure(target_exposure: float, red: RawImage, blue: RawImage, gr
         new_image = channel.get_image() - (channel.get_image() / channel.get_exposure_time()) * exposure_diff
         channel.update_image(new_image)
 
-def set_mean_brightness(target_mean: float, red: RawImage, blue: RawImage, green: RawImage):
-    for channel in [red, green, blue]:
-        this_mean = np.average(channel.get_image())
-        new_image = channel.get_image() * (target_mean / this_mean)
-        channel.update_image(new_image)
+# my original method
+def assign_basic_colors(aligned_filter_channels):
+    # create false color channels for each aligned image
+    basic_colors = [
+        ("violet", (1, 0, 0.5)),
+        ("magenta", (1, 0, 1)),
+        ("purple", (0.5, 0, 1)),
+        ("blue", (0, 0, 1)),
+        ("skyblue", (0, 0.5, 1)),
+        ("cyan", (0, 1, 1)),
+        ("seafoam", (0, 1, 0.5)),
+        ("green", (0, 1, 0)),
+        ("lime", (0.5, 1, 0)),
+        ("yellow", (1, 1, 0)),
+        ("orange", (1, 0.5, 0)),
+        ("red", (1, 0, 0))
+    ]
 
-def show_color_image(title, color_image):
-    fig, ax = plt.subplots()
-    ax.imshow(color_image) # color
-    ax.set_title(title)
-    plt.show()
+    false_color_images = { }
+    keys = list(aligned_filter_channels.keys())
+    print(keys)
+    num_channels = len(aligned_filter_channels)
+    max_channels = len(basic_colors)
+    total_channel_additions = np.array([0, 0, 0], float)
+    assigned_indicies = np.floor(np.linspace(0, max_channels-1, num=num_channels)).astype('int')
+    assignments = zip(range(0, num_channels), assigned_indicies)
+    print(list(assignments))
+    for i, index in enumerate(assigned_indicies):
+        (mult_red, mult_green, mult_blue) = basic_colors[index][1]
+        total_channel_additions = np.array([mult_red, mult_green, mult_blue], float) + total_channel_additions
+        this_color_image = np.dstack((
+            aligned_filter_channels[keys[i]] * mult_red,
+            aligned_filter_channels[keys[i]] * mult_green,
+            aligned_filter_channels[keys[i]] * mult_blue
+        ))
+        print(f"Created {basic_colors[index][0]} color image")
+        false_color_images[basic_colors[index][0]] = this_color_image
+        # show_decomposed_channels("image", this_color_image)
+    return false_color_images
 
-def show_all_channels(title, red: RawImage, blue: RawImage, green: RawImage, min=0, max=1, axis='on'):
-    color = np.dstack((red.get_image(), green.get_image(), blue.get_image()))
+def assign_nasa_colors(aligned_filter_channels):
+    # derived from https://jwst-docs.stsci.edu/jwst-near-infrared-camera/nircam-instrumentation/nircam-filters
+    nasa_colors_dict = {
+        "F150W2/CLEAR": (127/255,205/255,255/255),
+        "F070W/CLEAR": (127/255,127/255,216/255),
+        "F090W/CLEAR": (127/255,127/255,240/255),
+        "F115W/CLEAR": (127/255,135/255,255/255),
+        "F150W/CLEAR": (127/255,175/255,255/255),
+        "F200W/CLEAR": (127/255,231/255,255/255),
+        "F140M/CLEAR": (127/255,165/255,255/255),
+        "F150W2/F162M": (127/255,191/255,255),
+        "F182M/CLEAR": (127/255,215/255,255/255),
+        "F210M/CLEAR": (128/255,243/255,249/255),
+        "F150W2/F164N": (127/255,193/255,255/255),
+        "F187N/CLEAR": (127/255,219/255,255/255),
+        "F212N/CLEAR": (131/255,247/255,246/255),
+        "F322W2/CLEAR": (255/255,242/255,127/255),
+        "F277W/CLEAR": (191/255,255/255,186/255),
+        "F356W/CLEAR": (255/255,234/255,127/255),
+        "F444W/CLEAR": (255/255,147/255,127/255),
+        "F250M/CLEAR": (165/255,255/255,212/255),
+        "F300M/CLEAR": (210/255,255/255,167/255),
+        "F335M/CLEAR": (244/255,255/255,133/255),
+        "F360M/CLEAR": (244/255,255/255,133/255),
+        "F410M/CLEAR": (255/255,181/255,127/255),
+        "F430M/CLEAR": (255/255,158/255,127/255),
+        "F460M/CLEAR": (238/255,127/255,127/255),
+        "F480M/CLEAR": (216/255,127/255,127/255),
+        "F356W/F323N": (233/255,255/255,144/255),
+        "F444W/F405N": (255/255,182/255,127/255),
+        "F444W/F466N": (234/255,127/255,127/255),
+        "F444W/F470N": (227/255,127/255,127/255)
+    }
+    false_color_images = { }
+
+    length = len(aligned_filter_channels)
+    for filter, image in aligned_filter_channels.items():
+        (red_mult, green_mult, blue_mult) = nasa_colors_dict[filter]
+        this_color_image = np.dstack((
+            (image * red_mult),
+            (image * green_mult),
+            (image * blue_mult)
+        ))
+        false_color_images[filter] = this_color_image
+        print(f"Created {filter} color image")
+        # show_decomposed_channels("image", this_color_image)
+    return false_color_images
+
+def get_channel(image, channel: str):
+    if channel == 'red':
+        return image[ :, :, 0]
+    if channel == 'green':
+        return image[ :, :, 1]
+    if channel == 'blue':
+        return image[ :, :, 2]
+    return np.zeros((image.shape[0], image.shape[1]))
+
+def show_decomposed_channels(title, image: np.ndarray, min=0, max=1, axis='on'):
     fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(10, 10), sharex=True, sharey=True)
     ax = axes.ravel()
 
     # color
-    ax[0].imshow(color)
+    ax[0].imshow(image, vmin=min, vmax=max)
     ax[0].axis(axis)
     ax[0].set_title(f'{title}: Color')
 
     # red
-    ax[1].imshow(red.get_image(), cmap='gray', vmin=min, vmax=max)
+    ax[1].imshow(get_channel(image, 'red'), cmap='gray', vmin=min, vmax=max)
     ax[1].axis(axis)
-    ax[1].set_title(f'{title}: "red" {red.get_filter()}')
+    ax[1].set_title(f'{title}: "red"')
 
     # green
-    ax[2].imshow(green.get_image(), cmap='gray', vmin=min, vmax=max)
+    ax[2].imshow(get_channel(image, 'green'), cmap='gray', vmin=min, vmax=max)
     ax[2].axis(axis)
-    ax[2].set_title(f'{title}: "green" {green.get_filter()}')
+    ax[2].set_title(f'{title}: "green"')
 
     # blue
-    ax[3].imshow(blue.get_image(), cmap='gray', vmin=min, vmax=max)
+    ax[3].imshow(get_channel(image, 'blue'), cmap='gray', vmin=min, vmax=max)
     ax[3].axis(axis)
-    ax[3].set_title(f'{title}: "blue" {blue.get_filter()}')
+    ax[3].set_title(f'{title}: "blue"')
 
     plt.tight_layout()
     plt.show()
 
-def show_single_image(image: RawImage, axis='on', min=0, max=100):
+def show_color_image_from_dict(dict, axis='on', min=0, max=1):
     fig, ax = plt.subplots()
-    ax.imshow(image.get_image(), cmap='gray', vmin=min, vmax=max)
+    color_image = np.dstack((dict['red'], dict['green'], dict['green']))
+    ax.imshow(color_image)
     ax.axis(axis)
-    ax.set_title(f'{image.get_filter()}')
+    ax.set_title(f'Composed Color Image')
     plt.show()
+    return color_image
+
+def show_single_filter(title, image, axis='on'):
+    fig, ax = plt.subplots()
+    ax.imshow(image)
+    ax.axis(axis)
+    ax.set_title(title)
+    plt.show()
+
+def show_histogram(image):
+    plt.hist(image.flatten())
+    plt.xlim([0,12000])
+    plt.show()
+
+def save_image(data, path, name, dtype):
+    if dtype=='float32':
+        Image.fromarray(data).save(f'{path}\\{name}.tif')
+        print(f"Wrote {name} to disk as {dtype}")
+    else:
+        print(f"Writing {name} to disk as color image(?)")
+        io.imsave(f"{path}\\{name}.png", data)
+        print(f"Wrote {name} to disk")
+
+def load_image(name, dtype):
+    if dtype=='float32':
+        return np.array(Image.open(name))
+    else:
+        return io.imread(name)
 
 if __name__ == '__main__':
     main()
