@@ -1,0 +1,10 @@
+XTENSION= 'IMAGE   '           / Image extension                                
+BITPIX  =                  -32 / array data type                                
+NAXIS   =                    2 / number of array dimensions                     
+NAXIS1  =                 2355                                                  
+NAXIS2  =                 2348                                                  
+PCOUNT  =                    0 / number of parameters                           
+GCOUNT  =                    1 / number of groups                               
+EXTNAME = 'ERR     '           / extension name                                 
+BUNIT   = 'MJy/sr  '           / physical units of the array values             
+EXTVER  =                    1 / extension value                                

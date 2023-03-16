@@ -1,22 +1,13 @@
 import sys
 import os
 import datetime
-import traceback
 import numpy as np
 import skimage
 import skimage.transform
 from skimage import io
-from skimage.util import crop
-from scipy import ndimage as ndi
 from matplotlib import pyplot as plt
-from astropy.io import fits
-from astropy.table import Table
-from astropy import units as u
-from astropy.coordinates import SkyCoord
 from astroquery.mast import Observations
-from ImageDescription import ImageDescription
 from Mission import Mission
-from Card import Card
 from RawImage import RawImage
 from Query import Query
 from PIL import Image
