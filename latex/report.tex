@@ -84,18 +84,18 @@ The following offers a short description of JWST and its instruments and capabil
 \begin{figure*}
   \centering
     \includegraphics[scale=0.18]{instrument_array}
-  \caption{Placement of instrument array onboard JWST \cite{webbnircam}. The instrument that is focused is NIRCam, the primary tool that will be used in the project presented in this paper.}
+  \caption{Placement of the instrument array onboard JWST \cite{webbnircam}. The instrument that is focused is NIRCam, the primary tool that will be used in the project presented in this paper.}
   \label{fig:instruments}
 \end{figure*}
 
-In order to achieve these objectives, JWST is armed with several imaging and spectroscopy tools described below, and shown in \cref{fig:instruments}:
+In order to achieve JWST's objectives, the telescope is armed with several imaging and spectroscopy tools described below, and shown in \cref{fig:instruments}:
 \newline
 \textbf{MIRI Imager:} A camera sensor able to capture light with wavelengths between $5.6 - 25.5\mu m$. It offers 9 broadband filters allowing the capture of smaller portions of this light bandwidth. 
 The camera itself has a field of view of $74'' \times 113''$. It also features several dither patterns that improve sampling at the shorter wavelengths, and remove artifacts from the detector or cosmic ray hits \cite{webbmiri}.
 \newline
 \textbf{NIRCam Infrared Camera:} A tool that offers many observation modes from regular imaging to coronagraphic imaging, to wide field slitless spectroscopy. For this project, NIRCam will be the primary instrument that is studied and utilized.
 For imaging, NIRCam captures two $2.2' \times 2.2'$ fields that cover $9.7$ arcmin$^2$ with a total of 29 available wavelength filters.
-The coronagraphic imaging mode offers occlusion masks offer round and bar-shaped occulting masks allowing for the capture of a star's corona without capturing the intense light of the star's center \cite{webbnircam}. In some of the images shown in this paper, some of the larger stars will occlusion masks covering them.
+The coronagraphic imaging mode offers round and bar-shaped occulting masks allowing for the capture of a star's corona without capturing the intense light of the star's center \cite{webbnircam}. In some of the images shown in this paper, some of the larger stars will occlusion masks covering them.
 \newline
 \textbf{NIRISS Imaging:} An imager that enables capture of wavelengths between $0.8 - 5.0\mu m$ in a $2.2' \times 2.2'$ field of view. 
 Like NIRCam, NIRISS offers spectroscopy, but it is more sensitive to low surface brightness between $0.8$ and $2.5\mu m$. 
@@ -150,11 +150,11 @@ Each FITS file corresponds to one captured filtered exposure.
 
 \subsection{MAST}
 
-The Mikulski Archive for Space Telescopes (MAST) is the sole repository that this project uses, and likely the only option to reliably retrieve JWST imaging data. Alongside JWST, MAST includes a wealth of datasets organized by ``collections'', from many missions, including ``HST, Kepler, GALEX, EUVE, FUSE, IUE, SWIFT, and several other missions.'' \cite{mast}.
+The Mikulski Archive for Space Telescopes (MAST) is the sole repository that this project uses, and likely the only option to reliably retrieve JWST imaging data. Alongside JWST, MAST includes a wealth of datasets organized by ``collections'', from many missions, including ``HST, Kepler, GALEX, EUVE, FUSE, IUE, SWIFT, and several other missions'' \cite{mast}.
 
 For each entry in MAST, there are several dozen metadata entries describing the image/data target, associated mission, time of capture, and more. For image and spectroscopy data, most data also comes with a preview image that comes in a widely viewable format like JPG.
 
-Each mission will often have a handful of exposure captures in different wavelengths. Each of these has a different entry identifying the filters that were used. They are all under the same mission, target object name, and proposal ID. If one wanted to manually find all FITS files pertaining to one mission, they would need to search for a mission by one of those parameters and download each of the FITS files to get each filter used for that mission.
+Each mission will often have a handful of exposure captures in different wavelengths. Each of these has a different entry identifying the filters that were used. They are all under the same mission, target object name, and proposal ID. If one wanted to manually find all FITS files pertaining to one mission, they would need to search for a mission by one of those parameters and download each of the FITS files to get each filtered exposure used for that mission.
 
 \subsection{Astropy and Python}
 For this project, Python was used with several libraries including math and image processing libraries like NumPy, scikit-image, SciPy, and PIL. For astronomy related information processing, AstroPy, AstroQuery, and AstroAlign were also used. In this paper, the word ``script'' will be used to identify the program that was written for this project.
@@ -179,12 +179,12 @@ The user will then need to search the CSV for the data that they seek and identi
 
 The files will be downloaded to their own dedicated ``mission'' subdirectory. The FITS files for the mission will be sent to \emph{./missions/$<$target name$>$/data} and the preview of each FITS file will be sent to \emph{./missions/$<$target name$>$/preview}. Any future script executions of this same proposal ID will first check that the data already exists, and use existing data if possible. For the FITS files of the dataset used for this project, the total size on the disk was 2.27 GB.
 
-Internally, after the files are either downloaded or read from the disk, the SCI HDU data unit image will be extracted and placed into an object that will also store metadata that is highly relevant to the image such as pixel size, spacecraft location and orientation, exposure time, and filters used. 
+Internally, after the files are either downloaded or read from the disk, the SCI HDU data unit image of each FITS file will be extracted and placed into an object that will also store metadata that is highly relevant to the image such as pixel size, spacecraft location and orientation, exposure time, and filters used. 
 In case that there needs to be any processing of the image, this data can be readily accessed rather than opening the associated FITS file each time the information is needed. At this point, the images are ready to be processed.
 
 \subsection{Managing the Pixel Values}
 % value clip
-The raw image data has a very high dynamic range: from just below zero (due to stage 1 or 2 calibration) all the way to 25,000 in one image. If these images were to be scaled down to between 0 and 255 without adjustment, only a spec of a star's corona would show up in the center of a black image.
+The raw image data has a very high dynamic range: from just below zero (due to stage 1 or 2 calibration) all the way to 25,000 in one image. If these images were to be scaled down to between 0 and 255 without adjustment, only a speck of a star's corona would show up in the center of a black image.
 
 A solution to allow detail to show up when scaled down would be to clip the values and ignore those that are simply too bright. I found that taking the 99.9\% highest value pixel as the new upper limit suffices (as well as taking the lower limit at 0). 
 For all images in this project, the resulting highest values were in the double digits. When scaled to between 0 and 255, the detail is now very clear, and the clipping of star's extreme brightness is not noticeable. This clipping is applied to all images.
@@ -209,7 +209,7 @@ At some point, each image will either find an alignment, or fail once it is dete
 % turn to color
 Now that there are a set of aligned images, the coloring process can start. The initial approach was to assign each filter to a color. This mapping can be seen as shifting infrared wavelengths band downward to the visible light spectrum such that the longest infrared will be mapped to red, and the shortest infrared wavelengths will be mapped to violet.
 
-I created an array structure that would hold RGB values from 0 to 1 for several general bold colors sorted by wavelength: violet (1, 0, 0.5), blue (0, 0, 1), green (0, 1, 0), yellow (1, 1, 0) and red (1, 0, 0) to name a few. I then sorted the images based on their filter name. The filters have a naming convention that allows for them to be sorted alphabetically, resulting in them being ordered from shortest wavelength to longest.
+I created an array structure that would hold RGB values from 0 to 1 for several general bold colors sorted by wavelength: violet (1, 0, 0.5), blue (0, 0, 1), green (0, 1, 0), yellow (1, 1, 0) and red (1, 0, 0) to name a few. I then sorted the images based on their filter name. The filters have a naming convention that allows for them to be sorted alphabetically, resulting in them being ordered from shortest wavelength to longest. I then assigned each image to one of the color hues in an evenly-spaced fashion.
 
 An RGB image is now made from each mono-color image where each channel is multiplied by the weights in the previously described color list. There are now 4 images that are colored from black to a color hue.
 
@@ -271,7 +271,7 @@ During each exposure, the brightest parts are occluded, so when the images are c
 A second improvement that can be made is the alignment. In the current script, the best alignment is done via AstroAlign. However, with this method, some of the images get dropped since no alignment can be found.
 
 However, it might be possible to use that same function and achieve alignment with all images. If we were to choose a target image, we could build of images that align with that one. Then, we could assign those successfully-aligned images as the target, and try again on those that did not align the first time, and continue until all images are aligned. 
-This method should work if the images failed to align due to a poor selection of target image. However, the primary downside to this method is that the runtime would be $O(n^n)$, where $n$ is the number of filter images. Since each $n$ can already take between 2-10 seconds, this alternative approach would significantly increase the runtime.
+This method should work if the images failed to align due to a poor selection of target image. However, the primary downside to this method is that the runtime would be $O(n^2)$, where $n$ is the number of filter images. Since each $n$ can already take between 2-10 seconds, this alternative approach would significantly increase the runtime.
 
 There are also other novel algorithms for alignment that could be investigated and implemented. However, one avenue that I have not fully explored is figuring out fully what each piece of image metadata is used for. For example, in each image, there is a spatial extent value. Paired with the spacecraft orientation and other values, a way to derive a transformation matrix may exist using already-known information.
 
