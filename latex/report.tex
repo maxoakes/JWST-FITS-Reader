@@ -7,9 +7,8 @@
 %%%%%%%%% PAPER TYPE  - PLEASE UPDATE FOR FINAL VERSION
 % \usepackage[review]{cvpr}      % To produce the REVIEW version
 \usepackage{cvpr}              % To produce the CAMERA-READY version
-%\usepackage[pagenumbers]{cvpr} % To force page numbers, e.g. for an arXiv version
+%\usepackage[pagenumbers]{cvpr} % To force page numbers
 
-% Include other packages here, before hyperref.
 \usepackage{graphicx}
 \graphicspath{ {./image/} }
 \usepackage{caption}
@@ -20,18 +19,8 @@
 \usepackage{booktabs}
 \usepackage{listings}
 \usepackage{color}
-
-% It is strongly recommended to use hyperref, especially for the review version.
-% hyperref with option pagebackref eases the reviewers' job.
-% Please disable hyperref *only* if you encounter grave issues, e.g. with the
-% file validation for the camera-ready version.
-%
-% If you comment hyperref and then uncomment it, you should delete
-% ReviewTempalte.aux before re-running LaTeX.
-% (Or just hit 'q' on the first LaTeX run, let it finish, and you
-%  should be clear).
+\usepackage{ragged2e}
 \usepackage[pagebackref,breaklinks,colorlinks]{hyperref}
-
 
 % Support for easy cross-referencing
 \usepackage[capitalize]{cleveref}
@@ -40,11 +29,12 @@
 \Crefname{table}{Table}{Tables}
 \crefname{table}{Tab.}{Tabs.}
 
-
 %%%%%%%%% PAPER ID  - PLEASE UPDATE
 \def\cvprPaperID{918299101} % *** Enter the CVPR Paper ID here
 \def\confName{CVPR}
 \def\confYear{2023}
+
+\newcommand{\referencelink}[3]{\raggedright #1. \url{#2}. Accessed: #3.}
 
 \begin{document}
 
@@ -61,10 +51,10 @@ Portland State University\\
 %%%%%%%%% ABSTRACT
 \begin{abstract}
   Images coming back from the James Webb Space Telescope (JWST) present a fascinating and awe-inspiring look at distant celestial objects and provide a glimpse at the early history of the universe. 
-  This paper provides a summary of steps taken to replicate the work done to process raw astronomical imaging data into the vivid RGB images that have been released by The National Aeronautics and Space Administration (NASA). 
-  Methods to acquire the image files via download will be addressed, as well as an overview of the FITS file format in which they are contained.
-  The steps required to contextualize and realign the images will also be reviewed. A short description of any post-processing steps will be provided before a discussion of the results that were obtained.
-  The processed images that have been released from JWST were placed into an already-existing processing pipeline managed by developers and graphics artists that have already spent much time in the field, so the results of this project will not be at the expert-level quality of those images, but the general process described may shed light on how steps of that process is done.
+  This paper provides an overview of JWST and its mission, then summarizes the steps taken to replicate the manual work that is done in order to convert the raw astronomical imaging data into the vivid RGB images that have been released by the National Aeronautics and Space Administration (NASA). 
+  Also in this paper, methods to acquire the image files via download will be addressed, as well as an overview of the FITS file format in which they are contained.
+  The method used in this project to align the images will be explained, and alternative methods of doing this will also be discussed. The steps taken to assign color and combine the images will also be reviewed.
+  The color images released publicly by NASA from JWST are processed manually by artists that have already spent much time in the field. While this project does automate some steps in the coloring and alignment process, there is a subjective element that may always continue to elude any automatic pipeline for this process.
 \end{abstract}
 
 %%%%%%%%% BODY TEXT
@@ -75,14 +65,14 @@ The James Webb Space Telescope (JWST) was launched December 25th, 2021 as a succ
 (1) peer back in time with infrared imaging to see the formation of the first stars and galaxies, 
 (2) use highly-sensitive infrared technology to view faint and early galaxies to help us understand how they are formed,
 (3) see through clouds of dust and gas to observe how planetary systems are born
-(4) study atmospheres of extrasolar planets in hopes of finding the building blocks of life elsewhere in the universe \cite{webbobjective}.
+and (4) study atmospheres of extrasolar planets in hopes of finding the building blocks of life elsewhere in the universe, as well as within our own solar system \cite{webbobjective}.
 Altogether, these objectives aim to give humanity a better understanding of the universe and its formation, and help us better understand our place in the universe.
 
 Being able to meaningfully process data from JWST will prove to be immensely important in achieving these objectives. Additionally, allowing the public audience to see the fruits of JWST will drive fascination, and perhaps garner support in its ultimate objective.
 
 Currently, the publishing of images from JWST's NIRCam imager requires a mix of computer science and art to achieve eye-catching imagery, often requiring external photo editing software and subjective judgement to make the best decisions.
 
-This project aims to streamline the post-processing step of NIRCam data by automatically downloading imaging data from Space Telescope Science Institute's (STSI) MAST public archive, select the best wavelength-filtered exposures and combine them into a single correctly-aligned, clean RGB color image.
+This project aims to streamline the post-processing step of NIRCam data by automatically downloading imaging data from Space Telescope Science Institute's (STSI) MAST public archive, select the best wavelength-filtered exposure images and combine them into a single correctly-aligned, 8-bit RGB color image.
 
 \section{Background Information}
 \label{sec:background}
@@ -100,19 +90,18 @@ The following offers a short description of JWST and its instruments and capabil
 
 In order to achieve these objectives, JWST is armed with several imaging and spectroscopy tools described below, and shown in \cref{fig:instruments}:
 \newline
-\textbf{MIRI Imager:} A camera sensor able to capture between $5.6$ and $25.5\mu m$. It offers 9 broadband filters allowing the capture of smaller portions of this light bandwidth. 
+\textbf{MIRI Imager:} A camera sensor able to capture light with wavelengths between $5.6 - 25.5\mu m$. It offers 9 broadband filters allowing the capture of smaller portions of this light bandwidth. 
 The camera itself has a field of view of $74'' \times 113''$. It also features several dither patterns that improve sampling at the shorter wavelengths, and remove artifacts from the detector or cosmic ray hits \cite{webbmiri}.
 \newline
 \textbf{NIRCam Infrared Camera:} A tool that offers many observation modes from regular imaging to coronagraphic imaging, to wide field slitless spectroscopy. For this project, NIRCam will be the primary instrument that is studied and utilized.
-For imaging, NIRCam has two $2.2' \times 2.2'$ fields that cover $9.7$ arcmin$^2$ with a total of 29 available wavelength filters.
-The coronagraphic imaging mode offers occlusion masks offer round bar-shaped occulting masks allowing for the capture of a star's corona without capturing the intense light of the star's center \cite{webbnircam}. In some of the pre-processed images of this project, some of the larger stars will have occlusion masks featured in the image outputs.
+For imaging, NIRCam captures two $2.2' \times 2.2'$ fields that cover $9.7$ arcmin$^2$ with a total of 29 available wavelength filters.
+The coronagraphic imaging mode offers occlusion masks offer round and bar-shaped occulting masks allowing for the capture of a star's corona without capturing the intense light of the star's center \cite{webbnircam}. In some of the images shown in this paper, some of the larger stars will occlusion masks covering them.
 \newline
-\textbf{NIRISS Imaging:} An imager that enables capture of wavelengths between $0.8$ and $5.0\mu m$ in a $2.2' \times 2.2'$ field of view. 
+\textbf{NIRISS Imaging:} An imager that enables capture of wavelengths between $0.8 - 5.0\mu m$ in a $2.2' \times 2.2'$ field of view. 
 Like NIRCam, NIRISS offers spectroscopy, but it is more sensitive to low surface brightness between $0.8$ and $2.5\mu m$. 
 NIRISS imaging is also an alternative to NIRCam in cases where the position of a target is not known with great accuracy \cite{webbniriss}.
 \newline
-
-\textbf{NIRSPEC Spectroscopy:} Provides near-IR spectroscopy between $0.6$ and $5.3 \mu m$ in a $3.4 \times 3.6$ arcmin field of view. It is designed to be especially powerful for multiplexing spectroscopy and high contrast high throughput single-object spectroscopy \cite{webbnirspec}.
+\textbf{NIRSPEC Spectroscopy:} Provides near-IR spectroscopy between $0.6 - 5.3 \mu m$ in a $3.4 \times 3.6$ arcmin field of view. It is designed to be especially powerful for multiplexing spectroscopy and high-contrast, high-throughput single-object spectroscopy \cite{webbnirspec}.
 
 \subsection{Filters}
 
@@ -123,79 +112,104 @@ NIRISS imaging is also an alternative to NIRCam in cases where the position of a
   \label{fig:filters}
 \end{figure}
 
-JWST is able to capture between $0.6 -- 28.8\mu m$ between all available tools. On each instrument, there are several filters that allow for capturing a smaller bandwidth of that total.
-On NIRCam alone, there are 29 filters available: some for short wavelengths ($0.6-2.3 \mu m$) and some for long wavelengths ($2.4 -- 5.0 \mu m$). Many of these filters can be used in combination of each other by means of a filter wheel and pupil wheel \cite{webbfilters}. 
-For this project, the pupil wheel will either be clear (i.e, no filter), or filtering for a wavelength, and the filter wheel will always be set to some wavelength.
+JWST is able to capture between $0.6 - 28.8\mu m$ over all available instruments. On each instrument, there are several filters that allow for capturing a smaller bandwidth of that total.
+On NIRCam alone, there are 29 filters available: some for short wavelengths ($0.6 - 2.3 \mu m$) and some for long wavelengths ($2.4 - 5.0 \mu m$). Many of these filters can be used in combination of each other by means of a filter wheel and pupil wheel (see \cref{fig:wheels}) \cite{webbfilters}\cite{webbwheels}. 
+For this project, the pupil wheel will either be clear (i.e, no filter), or filtering for a wavelength, and the filter wheel will always be set to a wavelength filter.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[scale=0.081]{wheels}
+  \caption{Filter and pupil wheel configuration for NIRCam. Features two pairs of wheels: one pair for short wavelengths and one for longer wavelengths. Each pair has one wheel known as the `pupil' wheel which offers filters for different types of images, such as calibration or defocused light, and the `filter' wheel that primarily offers filters for different wavelengths of light \cite{webbwheels}.}
+  \label{fig:wheels}
+\end{figure}
 
 \subsection{JWST Data Processing}
-The processing of JWST goes through 3 stages. Stage 1 consists of detector-level corrections that are performed on a group-by-group basis. The output of this stage is a count rate image measuring the collection of photons.
+The processing of JWST goes through 4 stages. Stage 0 is raw data that is sent directly from JWST with zero processing or corrections. Stage 1 consists of detector-level corrections that are performed on a group-by-group basis. The output of this stage is a count rate image measuring the collection of photons.
 Stage 2 includes additional instrument-level corrections to produce fully calibrated image exposures. There are different pipelines for imaging and spectroscopic exposures.
 
-Stage 3 consists of working of with multiple exposures and often consists of combining exposures in some way \cite{webbstages}. 
-This is the stage that will primarily be used in the project described by this paper. Stage 3 processing adds corrections for astrometric alignment, background matching of the different mosaics, and outlier rejection \cite{webbstage3}. 
-The output of this stage, for NIRCam imaging specifically, are clean and calibrated images with metadata detailing photometry, physical positioning, timing, exposure, and much more.
+Stage 3 consists of working with multiple exposures and sometimes consists of combining exposures in some way \cite{webbstages}. 
+This is the stage that is used in the project. Stage 3 processing adds corrections for astrometric alignment, background matching of the different mosaics, and outlier rejection \cite{webbstage3}. 
+The output of this stage, for NIRCam imaging specifically, are (mostly) clean and calibrated images with metadata detailing photometry, physical positioning, timing, exposure, and much more.
 
 \subsection{Post-Processing by Astronomers}
-When the end goal is to out a color image from NIRCam, it is common that, after stage 3 data processing as previously described, several of the filter exposure images of a mission are compiled in image processing software like Photoshop \cite{editinterview}. At this point, it is up to the graphics artist to interpret the exposures and try to output the most visually striking combination of filters using only three color channels.
+When the end goal is to output a color image from NIRCam, it is common that, using stage 3 data, several of the filter exposure images of a mission (i.e. a session of image captures that focus on one target object) are compiled in image processing software like Photoshop \cite{editinterview}. At this point, it is up to the graphics artist to interpret the exposures and try to output the most visually striking combination of filters using only three color channels.
 
 \subsection{FITS File Format}
-FITS files are the only format that house JWST (and most astronomical) data. All FITS files are composed of header + data units (HDUs) as described below.
-A header unit consists of many records that make up something that resembles a standard dictionary data structure, but instead contains a key, value \emph{and} a comment.
+FITS files are the only format that house JWST (and most astronomical) data. All FITS files are composed of one or more header + data units (HDUs).
+A header unit within one HDU consists of many records that make up something that resembles a standard dictionary data structure, but instead contains a key, value \emph{and} comment.
 
-Alongside the header unit, an HDU can also contain an N-dimensional array, frequently a 1D spectrum, 2D image, or 3D data cube. The values in this array can be integers (signed, or unsigned for 8-bit), or floats of varying sizes \cite{fitsdoc}. This is the data unit of the HDU. Each FITS file can contain one or more of these HDUs.
+Alongside the header unit in an HDU, there may be an N-dimensional array, frequently a 1D spectrum, 2D image, or 3D data cube. The values in this array can be integers (signed, or unsigned for 8-bit), or floats of varying sizes \cite{fitsdoc}. This is the data unit of the HDU. Each FITS file can contain one or more of these HDUs.
+
 In the context of JWST stage 3 data used in this project, it is very common that a FITS file contains a primary HDU that contains no data unit and a header unit with upwards of 300+ entries with information about the mission, target object, and previous stage's processing steps.
-Alongside the primary HDU exists the ``science'' (SCI) HDU that contains the raw exposure data for the captured filtered wavelength. The accompanying table of cards is a lot shorter and contains information regarding the applied filter(s), exposure time, spacecraft orientation, spatial extent, as well as other metadata pertinent to the capture of the image.
-There are several other HDUs in the FITS file, most of which measure uncertainty and variance for each pixel in the SCI HDU data unit \cite{webbfits}. The remaining HDUs are not relevant to processing of the image data in this project. 
+
+Alongside the primary HDU exists the ``science'' (SCI) HDU that contains the raw exposure data for a captured filtered exposure. The accompanying table of headers is a lot shorter and contains information regarding the applied filter(s), exposure time, spacecraft orientation, spatial extent, as well as other metadata pertinent to the capture of the image.
+
+There are several other HDUs in the FITS file, most of which measure uncertainty and variance for each pixel in the SCI HDU data unit \cite{webbfits}. The remaining HDUs are currently not relevant to processing of the image data in this project.
+
+Each FITS file corresponds to one captured filtered exposure.
+
 \subsection{MAST}
 
 The Mikulski Archive for Space Telescopes (MAST) is the sole repository that this project uses, and likely the only option to reliably retrieve JWST imaging data. Alongside JWST, MAST includes a wealth of datasets organized by ``collections'', from many missions, including ``HST, Kepler, GALEX, EUVE, FUSE, IUE, SWIFT, and several other missions.'' \cite{mast}.
+
 For each entry in MAST, there are several dozen metadata entries describing the image/data target, associated mission, time of capture, and more. For image and spectroscopy data, most data also comes with a preview image that comes in a widely viewable format like JPG.
 
+Each mission will often have a handful of exposure captures in different wavelengths. Each of these has a different entry identifying the filters that were used. They are all under the same mission, target object name, and proposal ID. If one wanted to manually find all FITS files pertaining to one mission, they would need to search for a mission by one of those parameters and download each of the FITS files to get each filter used for that mission.
+
 \subsection{Astropy and Python}
-For this project, Python was used with several libraries including math and image processing libraries like NumPy, scikit-image, SciPy, and PIL. For astronomy related information processing, AstroPy, AstroQuery, and AstroAlign were also used.
+For this project, Python was used with several libraries including math and image processing libraries like NumPy, scikit-image, SciPy, and PIL. For astronomy related information processing, AstroPy, AstroQuery, and AstroAlign were also used. In this paper, the word ``script'' will be used to identify the program that was written for this project.
 
 \section{Methodology}
 \label{sec:script}
-The general goal of this project was to acquire JWST imaging data automatically via script, process it in some way so that it becomes usable and recognizable to the viewer, then combine the all associated data in such a way that the output is a full color RGB image that is of the same quality as those images released by the JWST team. This section will describe each step in my script that ultimately completes that goal.
+The general goal of this project was to acquire JWST imaging data automatically via script, process it in some way so that it becomes usable and recognizable to the viewer, then combine the all associated data in such a way that the output is a full color RGB image that is of the same quality as those released by the JWST team. This section will describe each step in the script that ultimately completes that goal.
 
 \subsection{Data Acquisition}
-The script that I created has two options when starting the script. Choosing the argument \emph{query} will start the Query mode to allow the user to find a mission, and choosing the \emph{run} argument will allow the user to input a unique ID to automatically start the entire acquisition and processing pipeline.
+
+The script that was created has two argument options to run. Choosing the argument \emph{query} will start the Query mode to allow the user to find a mission, and choosing the \emph{run} argument will allow the user to input a unique ID to automatically start the entire acquisition and processing pipeline.
 \newline
+\textbf{Query Mode:} On start, the user will be prompted with three search parameters: Name of the object, title of the mission, and proposal ID. Each of these prompts allow the user to narrow down search results of the future query output. If nothing is entered, all JWST data will be returned.
 
-\textbf{Query Mode:} On start, the user will be prompted with three search parameters: Name of the object, title of the mission, and proposal ID. Each of these prompts allow the user to narrow down search results of the future query output. If nothing is entered, all data will be returned.
+However, by default, there are several parameters that are applied that cannot be changed by the user. Therefore, the script is restricted to download data that matches each of the following criteria: it is JWST data, it is publicly available data, it is science (as opposed to measurement or calibration) data, it is a NIRCam image, and it is stage 3 data. Any additional parameters that the user initially entered are appended to this default list of parameters.
 
-However, by default, there are several parameters that are applied that cannot be changed so as to use only certain data: JWST data, publicly available data, science (as opposed to measurement or calibration), NIRCam images, and stage 3 data. Any additional parameters that the user entered are appended to this default list of parameters.
+A query is then made to MAST using the aforementioned search parameters and a resulting CSV is written to the disk in an appropriate subdirectory.
 
-A query is then made to MAST using the aforementioned search parameters and a resulting CSV is written to the disk in an appropriate sub directory.
-
-The user will then find the data that they seek and identify the proposal ID. The proposal ID is unique to each mission, and is short.
-
+The user will then need to search the CSV for the data that they seek and identify the proposal ID. The proposal ID is unique to each mission, and is short, making it a good unique identifier for a mission.
+\newline
 \textbf{Run Mode:} Upon starting run mode, the user will be prompted to enter a proposal ID. Upon entering the ID, MAST will be queried again, but this time to download all files relevant to that proposal's mission, and that conform to the aforementioned default search parameters.
 
-The files will be downloaded to their own dedicated ``mission'' subdirectory. The FITS files for the mission will be sent to \emph{./missions/<target name>/data} and the preview of each FITS file will be sent to \emph{./missions/<target name>/preview}. Any future script executions of this same proposal ID will first check that the data already exists, and use existing data if possible. For the FITS files of the dataset used for this project, the total size on the disk was 2.27 GB.
+The files will be downloaded to their own dedicated ``mission'' subdirectory. The FITS files for the mission will be sent to \emph{./missions/$<$target name$>$/data} and the preview of each FITS file will be sent to \emph{./missions/$<$target name$>$/preview}. Any future script executions of this same proposal ID will first check that the data already exists, and use existing data if possible. For the FITS files of the dataset used for this project, the total size on the disk was 2.27 GB.
 
-Internally, after the files are either downloaded or read from the disk, the SCI HDU data unit image will be extracted and placed into an object that will also store metadata that is highly relevant to the image such as pixel size, spacecraft location and orientation, exposure time, and filters used. In case there needs to be any processing of the image, this data can be readily accessed rather than opening the associated FITS file each time the information is needed. At this point, the images are ready to be processed.
+Internally, after the files are either downloaded or read from the disk, the SCI HDU data unit image will be extracted and placed into an object that will also store metadata that is highly relevant to the image such as pixel size, spacecraft location and orientation, exposure time, and filters used. 
+In case that there needs to be any processing of the image, this data can be readily accessed rather than opening the associated FITS file each time the information is needed. At this point, the images are ready to be processed.
 
 \subsection{Managing the Pixel Values}
 % value clip
-The resulting image data has a very high dynamic range: from just below zero (due to stage 1 or 2 calibration) all the way to 25,000 in one image. If these images were to be scaled down to between 0 and 255, only a spec of a star's corona would show up in the center of a black image. A solution to allow detail to show up when scaled down would be to clip the values and ignore those that are simply too bright. I found that taking the 99.9\% highest value pixel as the new upper limit suffices (as well as taking the lower limit at 0). For all images in this project, the resulting highest values were in the double digits. When scaled to between 0 and 255, the detail is now very clear, and the clipping of star's extreme brightness is not noticeable. This clipping is applied to all images.
+The raw image data has a very high dynamic range: from just below zero (due to stage 1 or 2 calibration) all the way to 25,000 in one image. If these images were to be scaled down to between 0 and 255 without adjustment, only a spec of a star's corona would show up in the center of a black image.
+
+A solution to allow detail to show up when scaled down would be to clip the values and ignore those that are simply too bright. I found that taking the 99.9\% highest value pixel as the new upper limit suffices (as well as taking the lower limit at 0). 
+For all images in this project, the resulting highest values were in the double digits. When scaled to between 0 and 255, the detail is now very clear, and the clipping of star's extreme brightness is not noticeable. This clipping is applied to all images.
+
+\subsection{Image Alignment}
 
 Now that each image is of reasonable dynamic range, the next obvious issue is that each image has a different resolution. Additionally, not all images capture the same exact spatial extent in space. This is because each image is taken with a different filter, and each image is exposed for several minutes. Because there is movement onboard the telescope to swap filters with the filter wheel, the spacecraft's orientation is not consistent across all captures.
 
-\subsection{Image Alignment}
-% naive alignment
-My initial approach was to assume the images do indeed capture the same spatial extent. Therefore, the thing needed was to identify a ``center'' (available in the header unit of each image), scale the images so each nominal pixel area is the same across all images, then pad each image to they are indeed the same exact resolution. The result of this was was a failure on two fronts. First, while each image does come with a center X and center Y value, these values do not correspond to the same point in space, or are they the exact center of the image. So, for the purposes of alignment, that statistic is useless. Second, each image does not cover the exact same spatial area, as explained previously. A new method was required to align the images in order to proceed.
+% bad alignment
+The initial approach was to assume the images do indeed capture the same spatial extent. Therefore, a center focus pixel was needed in order to have a scaling origin for each image, which is available in the header unit of each image.
+
+Next, each image needed to be scaled to the same nominal pixel area, then pad each image to they are indeed the same exact resolution. The result of this was was a failure on two fronts. First, while each image does come with a center X and center Y value, these values do not correspond to the same point in space, nor are they the exact center of the image. 
+So, for the purposes of alignment, that statistic is useless. Second, each image does not cover the exact same spatial area, as mentioned previously. A new method was required to align the images in order to proceed.
 
 % astroalign
 I found the AstroAlign Python library does exactly what I needed. The primary alignment function required a ``target image'' and a ``source image'', where the source would be aligned to the target image. This function finds stars in the image and attempts to match the stars of the target image with the stars of the source image and derive a transformation that is then applied to the source image. The source image is then automatically cropped and padded to match the size of the target image.
 
-After arbitrarily choosing a target image, every other image is aligned with the target. However, sometimes alignment with this method fails. If there is a failure, sensitivity and iteration values are adjusted and the alignment is retried. At some point, each image will either find an alignment, or fail once it is determined that alignment can be found. For the mission used in this project using only one target image, there are a resulting 4 images that share the same alignment: one target, and three successful alignments.
+After arbitrarily choosing a target image, the script attempts to align every  other image with the target. However, sometimes alignment with this method fails. If there is a failure, sensitivity and iteration parameters of the alignment function are adjusted and the alignment is retried. 
+At some point, each image will either find an alignment, or fail once it is determined that alignment cannot be found. For the mission used in this project using only one target image, there are a resulting 4 images that share the same alignment: one target, and three successful alignments. The mission originally had 6 exposure images.
 
 \subsection{Adding Color}
 % turn to color
-Now that the images are aligned, the coloring process can start. My initial approach was to assign each filter to a color. This mapping can be seen as shifting infrared wavelengths downward to the visible light spectrum such that the longest infrared will be mapped to red, and the shortest infrared wavelengths will be mapped to magenta.
+Now that there are a set of aligned images, the coloring process can start. The initial approach was to assign each filter to a color. This mapping can be seen as shifting infrared wavelengths band downward to the visible light spectrum such that the longest infrared will be mapped to red, and the shortest infrared wavelengths will be mapped to violet.
 
-I created an array structure that would hold RGB values from 0 to 1 for several general bold colors sorted by wavelength: violet (1, 0, 0.5), magenta (1, 0, 1), blue (0, 0, 1) green (0, 1, 0), yellow (1, 1, 0), orange (1, 0.5, 0), red (1, 0, 0) to name a few. I then sorted the images based on their filter name (which is also in a format that matches their wavelength).
+I created an array structure that would hold RGB values from 0 to 1 for several general bold colors sorted by wavelength: violet (1, 0, 0.5), blue (0, 0, 1), green (0, 1, 0), yellow (1, 1, 0) and red (1, 0, 0) to name a few. I then sorted the images based on their filter name. The filters have a naming convention that allows for them to be sorted alphabetically, resulting in them being ordered from shortest wavelength to longest.
 
 An RGB image is now made from each mono-color image where each channel is multiplied by the weights in the previously described color list. There are now 4 images that are colored from black to a color hue.
 
@@ -203,29 +217,30 @@ A second approach is to utilize the color assignment that the JWST team used. As
 
 \subsection{Displaying the Image}
 
-The final step was to combine the images in some way. After some experimenting with different methods, such add, blend, overlay, I found that the lighten operation yields the best results. Starting with a black image, the following algorithm is run: for each channel of each image, take the maximum of the current image channel and the existing image's channel.
+The final step was to combine the images in some way. After some experimenting with different methods, such add, blend, overlay, I found that the lighten operation yields the best results. Starting with a black image, the following algorithm is run: for each RGB channel of each image, take the maximum of the current image channel and the existing image's channel.
 
 Finally, the resulting image is displayed, as well as saved to disk in 8-bit RGB format. Each major step's image result is also written to the disk in their own directories.
 
 \section{Experiments}
 \label{sec:exp}
 
-Initial results of the script are promising, although there is certainly more that can be done, which will be addressed in the Future Works section.
+Initial results of the script are promising, although there is certainly more that can be done, which will be addressed in \cref{sec:disc}.
 
 \subsection{Success}
 
-The final output of the script using the AstroAlign alignment method and the JWST team's color assignments yields an image (\cref{fig:output}) that is similar to the one that was publicly released of the same nebula target object (\cref{fig:original}). Immediately, it is easy to see some key differences. First, the outward orangish explosion is not visible in my image. This is because most of that color was in an image that was thrown out due to lack of usable alignment. Second, the blue color of the center of the nebula is not as vivid. There are two reasons for this: the green color image was also thrown out due to lack of usable alignment, and second, the publicly released image also goes through some post-processing to bring out color, simply for aesthetics.
+The final output of the script using the AstroAlign alignment method and the JWST team's color assignments yields an image (\cref{fig:output}) that is somewhat similar to the one that was publicly released of the same nebula target object (\cref{fig:original}). Immediately, it is easy to see some key differences. First, the outward orangish explosion is not visible in my image. This is because most of that color was in an image that was thrown out due to lack of usable alignment. 
+Second, the blue color of the center of the nebula is not as vivid. There are two reasons for this: the green color image was also thrown out due to lack of usable alignment, and second, the publicly released image also goes through some post-processing to bring out color, simply for aesthetics.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[scale=0.05]{output}
+  \includegraphics[scale=0.0494]{output}
   \caption{Final unedited output of my script. The color-to-filter mappings are: Blue = F090W; Cyan = F187N; Yellow = F356W; Red = F405N.}
   \label{fig:output}
 \end{figure}
 
 \subsection{Failures}
 
-Before the final result in (\cref{fig:output}), there were some failed attempts at alignment and coloring. As shown in \cref{fig:misaligned}, the shift in each color filter color channel is obvious. Since there are more color channels in use, the overall color looks different than my final correctly aligned one, despite using the same color assignment.
+Before the final result in \cref{fig:output}, there were some failed attempts at alignment and coloring. As shown in \cref{fig:misaligned}, the shift in each color filter color channel is obvious. Since there are more color channels in use, the overall color looks different than my final correctly aligned one, despite using the same color assignment.
 
 \begin{figure}[t]
   \centering
@@ -244,23 +259,30 @@ Before the final result in (\cref{fig:output}), there were some failed attempts 
 \section{Discussion}
 \label{sec:disc}
 
-Overall, this script and project was successful to an extent, but there is still a lot more that can be added to this script, and that will be the majority of the discussion section
+Overall, this script and project were successful to an extent, but there is still a lot more that can be added to this script. If I had more time on this project, I would be able to attempt or complete a number of possible improvements.
 
-\subsection{Future Work}
+\subsection{Occlusion Disc Flooding}
 
-Each aspect of the script could be improved. If I had more time on this project, I would be able to attempt or complete some of the improvements.
+Firstly, a new feature that I did not attempt so far is a way to fill in the occluded spots. As mentioned when describing NIRCam, there is a way to occlude stars during image exposure. In the final color image result, a cyan circle and small black dot are visible in the center of the brightest stars in the image. 
+During each exposure, the brightest parts are occluded, so when the images are combined, some channels are missing the full color of stars. This can be fixed by either flood-filling the 0-value pixels inside of a very high-value ``pit'' of pixel values, or waiting until the final color image is created before simply assigning the center of the stars to a full white color. Both of these approaches would require a method to find each occluded area, but the first would require this happening for each filter image, even if some are thrown out.
 
-Firstly, a new feature that I did not attempt so far is a way to fill in the occluded spots. As mentioned when describing NIRCam, there is a way to occlude stars during image exposure. In the final color image result, a cyan circle and small black dot are visible in the center of the brightest stars in the image. During each exposure, the brightest parts are occluded, so when the images are combined, some channels are missing the full color of stars. This can be fixed by either flood-filling the 0-value pixels inside of a very high-value ``pit'' of pixel values, or waiting until the final color image is created before simply assigning the center of the stars to a full white color. Both of these approaches would require a method to find each occluded area, but the first would require this happening for each filter image, even if some are thrown out.
+\subsection{Alignment}
 
 A second improvement that can be made is the alignment. In the current script, the best alignment is done via AstroAlign. However, with this method, some of the images get dropped since no alignment can be found.
 
-However, it might be possible to use that same function and achieve alignment with all images. If we were to choose a target image, we could build of images that align with that one. Then, we could try those images that were aligned, and attempt to align those that failed previously. This method should work if the images failed to align due to a poor selection of target image. However, the primary downside to this method is that the runtime would be $O(n^n)$, where $n$ is the number of filter images. Since each $n$ can already take between 2-10 seconds, this alternative approach would significantly increase the runtime.
+However, it might be possible to use that same function and achieve alignment with all images. If we were to choose a target image, we could build of images that align with that one. Then, we could assign those successfully-aligned images as the target, and try again on those that did not align the first time, and continue until all images are aligned. 
+This method should work if the images failed to align due to a poor selection of target image. However, the primary downside to this method is that the runtime would be $O(n^n)$, where $n$ is the number of filter images. Since each $n$ can already take between 2-10 seconds, this alternative approach would significantly increase the runtime.
 
 There are also other novel algorithms for alignment that could be investigated and implemented. However, one avenue that I have not fully explored is figuring out fully what each piece of image metadata is used for. For example, in each image, there is a spatial extent value. Paired with the spacecraft orientation and other values, a way to derive a transformation matrix may exist using already-known information.
 
+\subsection{Color Assignment for Filters}
+
 Another area that needs some exploring is the color assignment process. For the final image of this project, I used NASA's assignment. Since the source images are of wavelengths that are not visible to humans, the color selection is somewhat arbitrary. Realistically, I could develop my own equally-as-detailed color assignment that features more vivid and varied colors.
 
-Finally, as mentioned previously, the images released by NASA go through some post-processing in Photoshop to touchup and enhance the images for aesthetic purposes. Again, since these images are outside of our perception, it would not be unrealistic to programmatically enhance the final image result. A nice addition to this script would be a simple color curve adjustment. A simple curve adjustment done manually in a photo editor is visible in \cref{fig:enhancement}. Even a simple operation such as this could improve the aesthetics of the image, even with two missing filter images.
+\subsection{Color Image Post-Processing}
+
+Finally, as mentioned previously, the images released by NASA go through some post-processing in Photoshop to touchup and enhance the images for aesthetic purposes. Again, since these images are outside of our perception, it would not be unrealistic to programmatically enhance the final image result. 
+A nice addition to this script would be a simple color curve adjustment. A simple curve adjustment done manually in a photo editor is visible in \cref{fig:enhancement}. A simple operation such as this could improve the aesthetics of the image, even with two missing filter images.
 
 \begin{figure}[t]
   \centering
@@ -269,399 +291,71 @@ Finally, as mentioned previously, the images released by NASA go through some po
   \label{fig:enhancement}
 \end{figure}
 
-%-------------------------------------------------------------------------
-% \section{Junk}
-% \label{sec:xxx}
+\section{Conclusion}
+\label{sec:conc}
 
-% \subsection{The ruler}
-% The \LaTeX\ style defines a printed ruler which should be present in the version submitted for review.
-% The ruler is provided in order that reviewers may comment on particular lines in the paper without circumlocution.
-% If you are preparing a document using a non-\LaTeX\ document preparation system, please arrange for an equivalent ruler to appear on the final output pages.
-% The presence or absence of the ruler should not change the appearance of any other content on the page.
-% The camera-ready copy should not contain a ruler.
-% (\LaTeX\ users may use options of cvpr.sty to switch between different versions.)
+The work done by NASA and the JWST team to publish the results of the telescope's data do a brilliant job of showing the beauty of the universe and garner interest in astronomy and astrophotography, and perhaps even gain support for JWST's mission. However, behind the vivid color images is a stack of raw data and several artists that manually create those color images.
 
-% Reviewers:
-% note that the ruler measurements do not align well with lines in the paper --- this turns out to be very difficult to do well when the paper contains many figures and equations, and, when done, looks ugly.
-% Just use fractional references (\eg, this line is $087.5$), although in most cases one would expect that the approximate location will be adequate.
+The goal of this project was to attempt to automate some of the work that the artists do. This includes finding the images from the public archive, clipping, cropping, and stacking the images into perfectly aligned color images that illustrate the different wavelengths and physical makeup of celestial objects. 
+The script that performs these actions does a great job of automatically acquiring the images, and an adequate job of clipping the images so their brightness is reasonable for a traditional 8-bit RGB image. As for combining the images using a simple merge operation, the script also does adequate work.
 
+However, much work can still go into aligning the images and assigning colors to each layer. For alignment, it is quite possible that the same library that was used in this project can be used again, but at the cost of significant runtime increase. Alternatively, completely new algorithms can be used that may only take a fraction of the time. Or perhaps the wealth of metadata that comes with each image layer may hold all that is needed to align the images perfectly and in very little time.
 
-% \subsection{Paper ID}
-% Make sure that the Paper ID from the submission system is visible in the version submitted for review (replacing the ``*****'' you see in this document).
-% If you are using the \LaTeX\ template, \textbf{make sure to update paper ID in the appropriate place in the tex file}.
+As for image color assignment, it is important to know that the images that are captured from NIRCam are infrared; we as humans would not be able to see these images normally. Therefore, the assignment of colors to each image layer is technically subjective. Because of this, more research and trials could still go into finding the best-looking color assignment for each wavelength filter. 
+Or, perhaps the best approach would be for the user of the script to choose the color assignment for each filter during runtime. This is the part of the project that leans more towards art than science.
 
+Overall, given more time, a lot more could be added to this project. But given the allotted time, I would say this project was successful, and continuing this project may lead to even better results than those shown in this report.
 
-% \subsection{Mathematics}
+\section{Project Source}
+\label{sec:source}
 
-% Please number all of your sections and displayed equations as in these examples:
-% \begin{equation}
-%   E = m\cdot c^2
-%   \label{eq:important}
-% \end{equation}
-% and
-% \begin{equation}
-%   v = a\cdot t.
-%   \label{eq:also-important}
-% \end{equation}
-% It is important for readers to be able to refer to any particular equation.
-% Just because you did not refer to it in the text does not mean some future reader might not need to refer to it.
-% It is cumbersome to have to use circumlocutions like ``the equation second from the top of page 3 column 1''.
-% (Note that the ruler will not be present in the final copy, so is not an alternative to equation numbers).
-% All authors will benefit from reading Mermin's description of how to write mathematics:
-% \url{http://www.pamitc.org/documents/mermin.pdf}.
+The source code for this project is viewable via GitHub at \url{https://github.com/maxoakes/JWST-FITS-Reader}. After acquiring the handful of libraries required to run, one can easily run the script using the default settings to acquire the same images as the one in this report. It is recommended to have at least 2.5GB of free disk space before running.
 
-% \subsection{Blind review}
-
-% Many authors misunderstand the concept of anonymizing for blind review.
-% Blind review does not mean that one must remove citations to one's own work---in fact it is often impossible to review a paper unless the previous citations are known and available.
-
-% Blind review means that you do not use the words ``my'' or ``our'' when citing previous work.
-% That is all.
-% (But see below for tech reports.)
-
-% Saying ``this builds on the work of Lucy Smith [1]'' does not say that you are Lucy Smith;
-% it says that you are building on her work.
-% If you are Smith and Jones, do not say ``as we show in [7]'', say ``as Smith and Jones show in [7]'' and at the end of the paper, include reference 7 as you would any other cited work.
-
-% An example of a bad paper just asking to be rejected:
-% \begin{quote}
-% \begin{center}
-%     An analysis of the frobnicatable foo filter.
-% \end{center}
-
-%    In this paper we present a performance analysis of our previous paper [1], and show it to be inferior to all previously known methods.
-%    Why the previous paper was accepted without this analysis is beyond me.
-
-%    [1] Removed for blind review
-% \end{quote}
-
-
-% An example of an acceptable paper:
-% \begin{quote}
-% \begin{center}
-%      An analysis of the frobnicatable foo filter.
-% \end{center}
-
-%    In this paper we present a performance analysis of the  paper of Smith \etal [1], and show it to be inferior to all previously known methods.
-%    Why the previous paper was accepted without this analysis is beyond me.
-
-%    [1] Smith, L and Jones, C. ``The frobnicatable foo filter, a fundamental contribution to human knowledge''. Nature 381(12), 1-213.
-% \end{quote}
-
-% If you are making a submission to another conference at the same time, which covers similar or overlapping material, you may need to refer to that submission in order to explain the differences, just as you would if you had previously published related work.
-% In such cases, include the anonymized parallel submission~\cite{Authors14} as supplemental material and cite it as
-% \begin{quote}
-% [1] Authors. ``The frobnicatable foo filter'', F\&G 2014 Submission ID 324, Supplied as supplemental material {\tt fg324.pdf}.
-% \end{quote}
-
-% Finally, you may feel you need to tell the reader that more details can be found elsewhere, and refer them to a technical report.
-% For conference submissions, the paper must stand on its own, and not {\em require} the reviewer to go to a tech report for further details.
-% Thus, you may say in the body of the paper ``further details may be found in~\cite{Authors14b}''.
-% Then submit the tech report as supplemental material.
-% Again, you may not assume the reviewers will read this material.
-
-% Sometimes your paper is about a problem which you tested using a tool that is widely known to be restricted to a single institution.
-% For example, let's say it's 1969, you have solved a key problem on the Apollo lander, and you believe that the CVPR70 audience would like to hear about your
-% solution.
-% The work is a development of your celebrated 1968 paper entitled ``Zero-g frobnication: How being the only people in the world with access to the Apollo lander source code makes us a wow at parties'', by Zeus \etal.
-
-% You can handle this paper like any other.
-% Do not write ``We show how to improve our previous work [Anonymous, 1968].
-% This time we tested the algorithm on a lunar lander [name of lander removed for blind review]''.
-% That would be silly, and would immediately identify the authors.
-% Instead write the following:
-% \begin{quotation}
-% \noindent
-%    We describe a system for zero-g frobnication.
-%    This system is new because it handles the following cases:
-%    A, B.  Previous systems [Zeus et al. 1968] did not  handle case B properly.
-%    Ours handles it by including a foo term in the bar integral.
-
-%    ...
-
-%    The proposed system was integrated with the Apollo lunar lander, and went all the way to the moon, don't you know.
-%    It displayed the following behaviours, which show how well we solved cases A and B: ...
-% \end{quotation}
-% As you can see, the above text follows standard scientific convention, reads better than the first version, and does not explicitly name you as the authors.
-% A reviewer might think it likely that the new paper was written by Zeus \etal, but cannot make any decision based on that guess.
-% He or she would have to be sure that no other authors could have been contracted to solve problem B.
-% \medskip
-
-% \noindent
-% FAQ\medskip\\
-% {\bf Q:} Are acknowledgements OK?\\
-% {\bf A:} No.  Leave them for the final copy.\medskip\\
-% {\bf Q:} How do I cite my results reported in open challenges?
-% {\bf A:} To conform with the double-blind review policy, you can report results of other challenge participants together with your results in your paper.
-% For your results, however, you should not identify yourself and should not mention your participation in the challenge.
-% Instead present your results referring to the method proposed in your paper and draw conclusions based on the experimental comparison to other results.\medskip\\
-
-% \begin{figure}[t]
-%   \centering
-%   \fbox{\rule{0pt}{2in} \rule{0.9\linewidth}{0pt}}
-%    %\includegraphics[width=0.8\linewidth]{egfigure.eps}
-
-%    \caption{Example of caption.
-%    It is set in Roman so that mathematics (always set in Roman: $B \sin A = A \sin B$) may be included without an ugly clash.}
-%    \label{fig:onecol}
-% \end{figure}
-
-% \subsection{Miscellaneous}
-
-% \noindent
-% Compare the following:\\
-% \begin{tabular}{ll}
-%  \verb'$conf_a$' &  $conf_a$ \\
-%  \verb'$\mathit{conf}_a$' & $\mathit{conf}_a$
-% \end{tabular}\\
-% See The \TeX book, p165.
-
-% The space after \eg, meaning ``for example'', should not be a sentence-ending space.
-% So \eg is correct, {\em e.g.} is not.
-% The provided \verb'\eg' macro takes care of this.
-
-% When citing a multi-author paper, you may save space by using ``et alia'', shortened to ``\etal'' (not ``{\em et.\ al.}'' as ``{\em et}'' is a complete word).
-% If you use the \verb'\etal' macro provided, then you need not worry about double periods when used at the end of a sentence as in Alpher \etal.
-% However, use it only when there are three or more authors.
-% Thus, the following is correct:
-%    ``Frobnication has been trendy lately.
-%    It was introduced by Alpher~\cite{Alpher02}, and subsequently developed by
-%    Alpher and Fotheringham-Smythe~\cite{Alpher03}, and Alpher \etal~\cite{Alpher04}.''
-
-% This is incorrect: ``... subsequently developed by Alpher \etal~\cite{Alpher03} ...'' because reference~\cite{Alpher03} has just two authors.
-
-
-% % Update the cvpr.cls to do the following automatically.
-% % For this citation style, keep multiple citations in numerical (not
-% % chronological) order, so prefer \cite{Alpher03,Alpher02,Authors14} to
-% % \cite{Alpher02,Alpher03,Authors14}.
-
-
-% \begin{figure*}
-%   \centering
-%   \begin{subfigure}{0.5\linewidth}
-%     \fbox{\rule{0pt}{2in} \rule{.9\linewidth}{0pt}}
-%     \caption{An example of a subfigure.}
-%     \label{fig:short-a}
-%   \end{subfigure}
-%   \hfill
-%   \begin{subfigure}{0.4\linewidth}
-%     \fbox{\rule{0pt}{2in} \rule{.9\linewidth}{0pt}}
-%     \caption{Another example.}
-%     \label{fig:short-b}
-%   \end{subfigure}
-%   \caption{Example of a short caption, which should be centered.}
-%   \label{fig:short}
-% \end{figure*}
-
-% %------------------------------------------------------------------------
-% \section{Formatting your paper}
-% \label{sec:formatting}
-
-% All text must be in a two-column format.
-% The total allowable size of the text area is $6\frac78$ inches (17.46 cm) wide by $8\frac78$ inches (22.54 cm) high.
-% Columns are to be $3\frac14$ inches (8.25 cm) wide, with a $\frac{5}{16}$ inch (0.8 cm) space between them.
-% The main title (on the first page) should begin 1 inch (2.54 cm) from the top edge of the page.
-% The second and following pages should begin 1 inch (2.54 cm) from the top edge.
-% On all pages, the bottom margin should be $1\frac{1}{8}$ inches (2.86 cm) from the bottom edge of the page for $8.5 \times 11$-inch paper;
-% for A4 paper, approximately $1\frac{5}{8}$ inches (4.13 cm) from the bottom edge of the
-% page.
-
-% %-------------------------------------------------------------------------
-% \subsection{Margins and page numbering}
-
-% All printed material, including text, illustrations, and charts, must be kept
-% within a print area $6\frac{7}{8}$ inches (17.46 cm) wide by $8\frac{7}{8}$ inches (22.54 cm)
-% high.
-% %
-% Page numbers should be in the footer, centered and $\frac{3}{4}$ inches from the bottom of the page.
-% The review version should have page numbers, yet the final version submitted as camera ready should not show any page numbers.
-% The \LaTeX\ template takes care of this when used properly.
-
-
-
-% %-------------------------------------------------------------------------
-% \subsection{Type style and fonts}
-
-% Wherever Times is specified, Times Roman may also be used.
-% If neither is available on your word processor, please use the font closest in
-% appearance to Times to which you have access.
-
-% MAIN TITLE.
-% Center the title $1\frac{3}{8}$ inches (3.49 cm) from the top edge of the first page.
-% The title should be in Times 14-point, boldface type.
-% Capitalize the first letter of nouns, pronouns, verbs, adjectives, and adverbs;
-% do not capitalize articles, coordinate conjunctions, or prepositions (unless the title begins with such a word).
-% Leave two blank lines after the title.
-
-% AUTHOR NAME(s) and AFFILIATION(s) are to be centered beneath the title
-% and printed in Times 12-point, non-boldface type.
-% This information is to be followed by two blank lines.
-
-% The ABSTRACT and MAIN TEXT are to be in a two-column format.
-
-% MAIN TEXT.
-% Type main text in 10-point Times, single-spaced.
-% Do NOT use double-spacing.
-% All paragraphs should be indented 1 pica (approx.~$\frac{1}{6}$ inch or 0.422 cm).
-% Make sure your text is fully justified---that is, flush left and flush right.
-% Please do not place any additional blank lines between paragraphs.
-
-% Figure and table captions should be 9-point Roman type as in \cref{fig:onecol,fig:short}.
-% Short captions should be centred.
-
-% \noindent Callouts should be 9-point Helvetica, non-boldface type.
-% Initially capitalize only the first word of section titles and first-, second-, and third-order headings.
-
-% FIRST-ORDER HEADINGS.
-% (For example, {\large \bf 1. Introduction}) should be Times 12-point boldface, initially capitalized, flush left, with one blank line before, and one blank line after.
-
-% SECOND-ORDER HEADINGS.
-% (For example, { \bf 1.1. Database elements}) should be Times 11-point boldface, initially capitalized, flush left, with one blank line before, and one after.
-% If you require a third-order heading (we discourage it), use 10-point Times, boldface, initially capitalized, flush left, preceded by one blank line, followed by a period and your text on the same line.
-
-% %-------------------------------------------------------------------------
-% \subsection{Footnotes}
-
-% Please use footnotes\footnote{This is what a footnote looks like.
-% It often distracts the reader from the main flow of the argument.} sparingly.
-% Indeed, try to avoid footnotes altogether and include necessary peripheral observations in the text (within parentheses, if you prefer, as in this sentence).
-% If you wish to use a footnote, place it at the bottom of the column on the page on which it is referenced.
-% Use Times 8-point type, single-spaced.
-
-
-% %-------------------------------------------------------------------------
-% \subsection{Cross-references}
-
-% For the benefit of author(s) and readers, please use the
-% {\small\begin{verbatim}
-%   \cref{...}
-% \end{verbatim}}  command for cross-referencing to figures, tables, equations, or sections.
-% This will automatically insert the appropriate label alongside the cross-reference as in this example:
-% \begin{quotation}
-%   To see how our method outperforms previous work, please see \cref{fig:onecol} and \cref{tab:example}.
-%   It is also possible to refer to multiple targets as once, \eg~to \cref{fig:onecol,fig:short-a}.
-%   You may also return to \cref{sec:formatting} or look at \cref{eq:also-important}.
-% \end{quotation}
-% If you do not wish to abbreviate the label, for example at the beginning of the sentence, you can use the
-% {\small\begin{verbatim}
-%   \Cref{...}
-% \end{verbatim}}
-% command. Here is an example:
-% \begin{quotation}
-%   \Cref{fig:onecol} is also quite important.
-% \end{quotation}
-
-% %-------------------------------------------------------------------------
-% \subsection{References}
-
-% List and number all bibliographical references in 9-point Times, single-spaced, at the end of your paper.
-% When referenced in the text, enclose the citation number in square brackets, for
-% example~\cite{Authors14}.
-% Where appropriate, include page numbers and the name(s) of editors of referenced books.
-% When you cite multiple papers at once, please make sure that you cite them in numerical order like this \cite{Alpher02,Alpher03,Alpher05,Authors14b,Authors14}.
-% If you use the template as advised, this will be taken care of automatically.
-
-% \begin{table}
-%   \centering
-%   \begin{tabular}{@{}lc@{}}
-%     \toprule
-%     Method & Frobnability \\
-%     \midrule
-%     Theirs & Frumpy \\
-%     Yours & Frobbly \\
-%     Ours & Makes one's heart Frob\\
-%     \bottomrule
-%   \end{tabular}
-%   \caption{Results.   Ours is better.}
-%   \label{tab:example}
-% \end{table}
-
-% %-------------------------------------------------------------------------
-% \subsection{Illustrations, graphs, and photographs}
-
-% All graphics should be centered.
-% In \LaTeX, avoid using the \texttt{center} environment for this purpose, as this adds potentially unwanted whitespace.
-% Instead use
-% {\small\begin{verbatim}
-%   \centering
-% \end{verbatim}}
-% at the beginning of your figure.
-% Please ensure that any point you wish to make is resolvable in a printed copy of the paper.
-% Resize fonts in figures to match the font in the body text, and choose line widths that render effectively in print.
-% Readers (and reviewers), even of an electronic copy, may choose to print your paper in order to read it.
-% You cannot insist that they do otherwise, and therefore must not assume that they can zoom in to see tiny details on a graphic.
-
-% When placing figures in \LaTeX, it's almost always best to use \verb+\includegraphics+, and to specify the figure width as a multiple of the line width as in the example below
-% {\small\begin{verbatim}
-%    \usepackage{graphicx} ...
-%    \includegraphics[width=0.8\linewidth]
-%                    {myfile.pdf}
-% \end{verbatim}
-% }
-
-
-% %-------------------------------------------------------------------------
-% \subsection{Color}
-
-% Please refer to the author guidelines on the \confName\ \confYear\ web page for a discussion of the use of color in your document.
-
-% If you use color in your plots, please keep in mind that a significant subset of reviewers and readers may have a color vision deficiency; red-green blindness is the most frequent kind.
-% Hence avoid relying only on color as the discriminative feature in plots (such as red \vs green lines), but add a second discriminative feature to ease disambiguation.
-
-% %------------------------------------------------------------------------
-% \section{Final copy}
-
-% You must include your signed IEEE copyright release form when you submit your finished paper.
-% We MUST have this form before your paper can be published in the proceedings.
-
-% Please direct any questions to the production editor in charge of these proceedings at the IEEE Computer Society Press:
-% \url{https://www.computer.org/about/contact}.
-
-\LaTeX{} \cite{lamport94} is a set of macros built atop \TeX{} \cite{texbook}.
-%%%%%%%%% REFERENCES
-\begin{thebibliography}{9}
+\begin{thebibliography}{14}
 \bibitem{webbobjective}
-$https://www.nasa.gov/mission_pages/webb/science/index.html$
+\referencelink{James Webb Space Telescope Science}{https://www.nasa.gov/mission_pages/webb/science/index.html}{Feb. 18, 2023}
 
 \bibitem{webbtools}
-$https://archive.stsci.edu/missions-and-data/jwst$
+\referencelink{JWST Missions and Data}{https://archive.stsci.edu/missions-and-data/jwst}{Jan 11, 2023}
 
 \bibitem{webbmiri}
-$https://jwst-docs.stsci.edu/jwst-mid-infrared-instrument/miri-observing-modes/miri-imaging$
+\referencelink{MIRI Imaging - JWST User Documentation}{https://jwst-docs.stsci.edu/jwst-mid-infrared-instrument/miri-observing-modes/miri-imaging}{Feb. 18, 2023}
 
 \bibitem{webbnircam}
-$https://jwst-docs.stsci.edu/jwst-near-infrared-camera$
+\referencelink{JWST Near Infrared Camera - JWST User Documentation}{https://jwst-docs.stsci.edu/jwst-near-infrared-camera}{Feb. 18, 2023}
 
 \bibitem{webbniriss}
-$https://jwst-docs.stsci.edu/jwst-near-infrared-imager-and-slitless-spectrograph/niriss-observing-modes/niriss-imaging$
+\referencelink{NIRISS Imaging - JWST User Documentation}{https://jwst-docs.stsci.edu/jwst-near-infrared-imager-and-slitless-spectrograph/niriss-observing-modes/niriss-imaging}{Feb. 18, 2023}
 
 \bibitem{webbnirspec}
-$https://jwst-docs.stsci.edu/jwst-near-infrared-spectrograph$
+\referencelink{JWST Near Infrared Spectrograph - JWST User Documentation}{https://jwst-docs.stsci.edu/jwst-near-infrared-spectrograph}{Feb. 18, 2023}
 
 \bibitem{webbfilters}
-$https://jwst-docs.stsci.edu/jwst-near-infrared-camera/nircam-instrumentation/nircam-filters$
+\referencelink{NIRCam Filters - JWST User Documentation}{https://jwst-docs.stsci.edu/jwst-near-infrared-camera/nircam-instrumentation/nircam-filters}{Feb. 10, 2023}
+
+\bibitem{webbwheels}
+\referencelink{NIRCam Pupil and Filter Wheels - JWST User Documentation}{https://jwst-docs.stsci.edu/jwst-near-infrared-camera/nircam-instrumentation/nircam-pupil-and-filter-wheels}{Mar 23, 2023}
 
 \bibitem{webbstages}
-$https://jwst-pipeline.readthedocs.io/en/stable/jwst/pipeline/main.html$
+\referencelink{Pipeline Stages}{https://jwst-pipeline.readthedocs.io/en/stable/jwst/pipeline/main.html}{Jan 20, 2023}
 
 \bibitem{webbstage3}
-$https://jwst-pipeline.readthedocs.io/en/stable/jwst/pipeline/calwebb_image3.html\#calwebb-image3$
+\referencelink{calwebb image3: Stage 3 Imaging Processing}{https://jwst-pipeline.readthedocs.io/en/stable/jwst/pipeline/calwebb_image3.html}{Jan 20, 2023}
 
 \bibitem{editinterview}
-$https://www.space.com/james-webb-space-telescope-image-editing$
+\referencelink{Here's how to edit James Webb Space Telescope images}{https://www.space.com/james-webb-space-telescope-image-editing}{Feb 18, 2023}
 
 \bibitem{fitsdoc}
-$https://www.loc.gov/preservation/digital/formats/fdd/fdd000317.shtml$
+\referencelink{Flexible Image Transport System (FITS), Version 3.0}{https://www.loc.gov/preservation/digital/formats/fdd/fdd000317.shtml}{Jan 20, 2023}
 
 \bibitem{webbfits}
-$https://jwst-pipeline.readthedocs.io/en/stable/jwst/data_products/science_products.html\#resampled-2-d-data-i2d-and-s2d$
+\referencelink{Calibrated data: cal and calints}{https://jwst-pipeline.readthedocs.io/en/stable/jwst/data_products/science_products.html\#calibrated-data-cal-and-calints}{Jan 20, 2023}
 
 \bibitem{mast}
-$https://mast.stsci.edu/portal/Mashup/Clients/Mast/Portal.html$
+\referencelink{MAST: Barbara A. Mikulski Archive for Space Telescopes}{https://mast.stsci.edu/portal/Mashup/Clients/Mast/Portal.html}{Jan 11, 2023}
 
 \bibitem{3132}
-$https://webbtelescope.org/contents/news-releases/2022/news-2022-033$
+\referencelink{NASA's Webb Captures Dying Star's Final `Performance' in Fine Detail}{https://webbtelescope.org/contents/news-releases/2022/news-2022-033}{March 21, 2023}
 
 \end{thebibliography}
 
